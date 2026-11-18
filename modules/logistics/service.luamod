@@ -1,0 +1,38 @@
+-- logistics/service.luamod — 服务请求 PDU(PDU 5,后勤族)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 布局:requesting(6) servicing(6) service_type(1) num(1) pad16(2)
+--       + num×补给量(9=EntityType8+数量1);body 总 16+9N
+-- 补给量记录在 shared.luamod(与 6/7 共用)
+
+return function(C)
+    local f = C.proto.fields
+
+    -- 服务类型 [UID 63]
+    local V_SERVICE = {
+        [0] = "其他 Other",
+        [1] = "再补给 Resupply",
+        [2] = "修理 Repair",
+        [3] = "空中加油——高保真 Aerial Refueling - High Fidelity",
+        [4] = "空中加油——低保真 Aerial Refueling - Low Fidelity",
+    }
+
+    f.service_type = ProtoField.uint8("displus.service_type", "服务类型 (Service Type)", base.DEC, V_SERVICE)
+
+    ---------------------------------------------------------------- 服务请求(PDU 5)
+    -- requesting(6) servicing(6) service_type(1) num(1) pad16(2) supplies(9N);总 28+9N
+    local function dissect_service_request(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 16, body) then return off end
+        off = C.add_entity_id(body, tvb, off, "请求实体ID (Requesting Entity ID)")
+        off = C.add_entity_id(body, tvb, off, "服务实体ID (Servicing Entity ID)")
+        if not C.need(tvb, off, 4, body) then return off end
+        body:add(f.service_type, tvb(off, 1)); off = off + 1
+        local n = tvb(off, 1):uint()
+        body:add(f.num_supplies, tvb(off, 1)); off = off + 1
+        body:add(f.pad16, tvb(off, 2)); off = off + 2
+        off = C.add_supplies(body, tvb, off, n)
+        return off
+    end
+
+    C.register(5, dissect_service_request, "服务请求 Service Request")
+end

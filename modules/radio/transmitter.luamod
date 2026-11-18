@@ -1,0 +1,220 @@
+-- radio/transmitter.luamod — 发射机 PDU(PDU 25,无线电通信族)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 布局:EntityID(6) radio_id(2) RadioEntityType(8) state(1) input(1) pad16(2)
+--       天线位置(24,f64) 相对天线(12,f32) 方向图类型(2) 方向图长度(2)
+--       频率(u64) 带宽(f32) 功率(f32) 调制类型(8=扩频2+主调制2+细节2+系统2)
+--       加密系统(2) 密钥(2=模式位+密钥ID) 调制参数长(1) pad24(3)
+--       + 参数(SINCGARS 16B / JTIDS·Link11 8B / 其他按长度)
+-- 电台公共字段在 radio/shared.luamod(与 26/27 共用)
+
+return function(C)
+    local f             = C.proto.fields
+
+    ---------------------------------------------------------------- 枚举
+    local V_TX_STATE    = {
+        [0] = "关机 Off",
+        [1] = "开机但未发射 On but not transmitting",
+        [2] = "开机且发射中 On and transmitting",
+    }
+    local V_INPUT_SRC   = {
+        [0] = "其他 Other",
+        [1] = "驾驶员(飞行员) Pilot",
+        [2] = "副驾驶 Copilot",
+        [3] = "大副 First Officer",
+        [4] = "驾驶员(车辆) Driver",
+        [5] = "装填手 Loader",
+        [6] = "炮长 Gunner",
+        [7] = "车长 Commander",
+        [8] = "数字数据设备 Digital Data Device",
+        [9] = "内部通话 Intercom",
+        [10] = "音频干扰机 Audio Jammer",
+        [11] = "数据干扰机 Data Jammer",
+        [12] = "GPS 干扰机 GPS Jammer",
+        [13] = "GPS 欺骗干扰机 GPS Meaconer",
+        [14] = "卫星通信上行干扰机 SATCOM Uplink Jammer",
+        [15] = "机组观察员 1 Crew Observer 1",
+        [16] = "机组观察员 2 Crew Observer 2",
+        [17] = "空中加油员(ARO) Aerial Refueling Officer (ARO)",
+        [18] = "空中加油教官(AROI) Aerial Refueling Officer Instructor (AROI)",
+    }
+    local V_ANT_PATTERN = {
+        [0] = "各向同性(球形辐射方向图) Isotropic (Spherical Radiation Pattern)",
+        [1] = "波束 Beam",
+        [2] = "球谐函数 Spherical harmonic",
+        [4] = "发射机辐射体积 Transmitter Radiation Volume",
+        [5] = "波束与发射机辐射体积 Beam and Transmitter Radiation Volume",
+        [6] = "全向(环形辐射方向图) Omnidirectional (Toroidal Radiation Pattern)",
+    }
+    local V_CRYPTO      = {
+        [0] = "无加密设备 No Encryption Device",
+        [1] = "KY-28",
+        [2] = "KY-58",
+        [3] = "窄带保密话音(NSVE) Narrow Spectrum Secure Voice (NSVE)",
+        [4] = "宽带保密话音(WSVE) Wide Spectrum Secure Voice (WSVE)",
+        [5] = "SINCGARS 内装加密(ICOM) SINCGARS ICOM",
+        [6] = "KY-75",
+        [7] = "KY-100",
+        [8] = "KY-57",
+        [9] = "KYV-5",
+        [10] = "Link 11 KG-40A-P(NTDS) Link 11 KG-40A-P (NTDS)",
+        [11] = "Link 11B KG-40A-S",
+        [12] = "Link 11 KG-40AR",
+        [13] = "KGV-135A",
+        [14] = "战术保密话音(TSV) Tactical Secure Voice (TSV)",
+    }
+    local V_MOD_MAJOR   = {
+        [0] = "其他 Other",
+        [1] = "幅度 Amplitude",
+        [2] = "幅度与角度 Amplitude and Angle",
+        [3] = "角度 Angle",
+        [4] = "组合 Combination",
+        [5] = "脉冲 Pulse",
+        [6] = "未调制 Unmodulated",
+        [7] = "载波相移调制(CPSM) Carrier Phase Shift Modulation (CPSM)",
+        [8] = "卫星通信(SATCOM) SATCOM",
+    }
+    local V_MOD_SYSTEM  = {
+        [0] = "其他 Other",
+        [1] = "通用电台或简单内话 Generic Radio or Simple Intercom",
+        [2] = "HAVE QUICK I",
+        [3] = "HAVE QUICK II",
+        [4] = "SATURN",
+        [5] = "SINCGARS",
+        [6] = "CCTT SINCGARS",
+        [7] = "EPLRS(增强型定位报告系统) EPLRS (Enhanced Position Location Reporting System)",
+        [8] = "JTIDS/MIDS",
+        [9] = "Link 11",
+        [10] = "Link 11B",
+        [11] = "L 波段卫星通信 L-Band SATCOM",
+        [12] = "增强型 SINCGARS 7.3 Enhanced SINCGARS 7.3",
+        [13] = "导航辅助 Navigation Aid",
+        [14] = "MUOS(移动用户目标系统) MUOS",
+        [15] = "联合距离扩展应用协议 C(JREAP-C) Joint Range Extension Application Protocol C (JREAP-C)",
+        [19] = "Link 22",
+    }
+
+    ---------------------------------------------------------------- Transmitter(25)
+    f.tx_state          = ProtoField.uint8("displus.radio_transmit_state", "发射状态 (Transmit State)", base.DEC, V_TX_STATE)
+    f.input_src         = ProtoField.uint8("displus.radio_input_source", "输入源 (Input Source)", base.DEC, V_INPUT_SRC)
+    f.ant_loc_x         = ProtoField.double("displus.antenna_location_x", "X (Antenna Location)")
+    f.ant_loc_y         = ProtoField.double("displus.antenna_location_y", "Y (Antenna Location)")
+    f.ant_loc_z         = ProtoField.double("displus.antenna_location_z", "Z (Antenna Location)")
+    f.rel_ant_x         = ProtoField.float("displus.rel_antenna_location_x", "X (Relative Antenna Location)")
+    f.rel_ant_y         = ProtoField.float("displus.rel_antenna_location_y", "Y (Relative Antenna Location)")
+    f.rel_ant_z         = ProtoField.float("displus.rel_antenna_location_z", "Z (Relative Antenna Location)")
+    f.ant_pattern_type  = ProtoField.uint16("displus.antenna_pattern_type",
+        "天线方向图类型 (Antenna Pattern Type)", base.DEC, V_ANT_PATTERN)
+    f.ant_pattern_len   = ProtoField.uint16("displus.antenna_pattern_length",
+        "天线方向图长度 (Antenna Pattern Length)", base.DEC)
+    f.tx_freq           = ProtoField.uint64("displus.transmit_frequency", "发射频率 (Transmit Frequency) Hz", base.DEC)
+    f.tx_bandwidth      = ProtoField.float("displus.transmit_freq_bandwidth", "发射带宽 (Bandwidth) Hz")
+    f.tx_power          = ProtoField.float("displus.transmit_power", "发射功率 (Transmit Power) dBm")
+    f.ss_usage          = ProtoField.bool("displus.spread_spectrum_usage", "扩频使用 (Spread Spectrum)", 16,
+        { "使用扩频", "未使用扩频" }, 0xFFFF)
+    f.ss_fh             = ProtoField.bool("displus.frequency_hopping", "跳频 (Frequency Hopping)", 16, nil, 0x0001)
+    f.ss_pn             = ProtoField.bool("displus.pseudo_noise_modulation", "伪噪声调制 (Pseudo Noise)", 16, nil, 0x0002)
+    f.ss_th             = ProtoField.bool("displus.time_hopping", "跳时 (Time Hopping)", 16, nil, 0x0004)
+    f.mod_major         = ProtoField.uint16("displus.modulation_major", "主调制 (Major Modulation)", base.DEC, V_MOD_MAJOR)
+    f.mod_system        = ProtoField.uint16("displus.modulation_system", "调制系统 (System Modulation)", base.DEC,
+        V_MOD_SYSTEM)
+    f.crypto_system     = ProtoField.uint16("displus.crypto_system", "加密系统 (Crypto System)", base.DEC, V_CRYPTO)
+    f.crypto_key        = ProtoField.uint16("displus.crypto_key", "密钥 (Crypto Key)", base.HEX)
+    f.enc_mode          = ProtoField.bool("displus.encryption_mode", "加密模式 (Encryption Mode)", 16,
+        { "差相 diphase", "基带 baseband" }, 0x8000)
+    f.key_id            = ProtoField.uint16("displus.key_identifier", "密钥标识 (Key Identifier)", base.DEC, nil, 0x7FFF)
+    f.mod_param_len     = ProtoField.uint8("displus.modulation_parameter_length",
+        "调制参数长度 (Modulation Parameter Length)", base.DEC)
+    f.mod_param_dump    = ProtoField.bytes("displus.mod_param_dump", "调制参数 (Modulation Parameters)")
+    -- SINCGARS
+    f.fh_net_id         = ProtoField.uint16("displus.sincgars_fh_net_id", "跳频网ID (FH Net ID)", base.DEC)
+    f.fh_set_id         = ProtoField.uint16("displus.sincgars_fh_set_id", "跳频集ID (FH Set ID)", base.DEC)
+    f.fh_lo_set         = ProtoField.uint16("displus.sincgars_fh_lo_set_id", "跳频低集ID (FH LO Set ID)", base.DEC)
+    f.fh_start          = ProtoField.uint8("displus.sincgars_fh_msg_start", "跳频消息起始 (FH Message Start)", base.DEC)
+    f.fh_reserved       = ProtoField.uint8("displus.sincgars_fh_reserved", "保留 (Reserved)", base.DEC)
+    f.fh_sync           = ProtoField.uint32("displus.sincgars_fh_sync_time_offset", "同步时间偏移 (Sync Time Offset)", base
+    .DEC)
+    f.fh_key            = ProtoField.uint16("displus.sincgars_fh_security_key", "安全密钥标签 (Security Key Tag)", base.HEX)
+    f.fh_clear          = ProtoField.uint8("displus.sincgars_fh_clear_channel", "清晰信道 (Clear Channel)", base.DEC)
+
+    -- 调制类型记录:8 字节(扩频2 + 主调制2 + 细节2 + 系统2)
+    -- 细节表按主调制选择;细节枚举量大,统一显示裸值+主调制/系统中文名
+    local function add_modulation_type(t, tvb, off)
+        local sub = t:add(tvb(off, 8), "调制类型 (Modulation Type)")
+        local ss = sub:add(tvb(off, 2), "扩频 (Spread Spectrum)")
+        ss:add(f.ss_usage, tvb(off, 2))
+        ss:add(f.ss_fh, tvb(off, 2))
+        ss:add(f.ss_pn, tvb(off, 2))
+        ss:add(f.ss_th, tvb(off, 2))
+        off = off + 2
+        sub:add(f.mod_major, tvb(off, 2)); off = off + 2
+        sub:add(f.raw, tvb(off, 2))
+        sub:append_text("") -- 细节调制值:按主调制选表,此处按裸值显示
+        off = off + 2
+        local sys = tvb(off, 2):uint()
+        sub:add(f.mod_system, tvb(off, 2)); off = off + 2
+        return off, sys
+    end
+
+    local function dissect_transmitter(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 52, body) then return off end
+        off = C.add_entity_id(body, tvb, off, "实体ID (Entity ID)")
+        body:add(f.radio_id, tvb(off, 2)); off = off + 2
+        off = C.add_radio_entity_type(body, tvb, off, "电台实体类型 (Radio Entity Type)")
+        body:add(f.tx_state, tvb(off, 1)); off = off + 1
+        body:add(f.input_src, tvb(off, 1)); off = off + 1
+        body:add(f.pad16, tvb(off, 2)); off = off + 2
+        local al = body:add(tvb(off, 24), "天线位置 (Antenna Location)")
+        al:add(f.ant_loc_x, tvb(off, 8)); al:add(f.ant_loc_y, tvb(off + 8, 8)); al:add(f.ant_loc_z, tvb(off + 16, 8))
+        off = off + 24
+        local rl = body:add(tvb(off, 12), "相对天线位置 (Relative Antenna Location)")
+        rl:add(f.rel_ant_x, tvb(off, 4)); rl:add(f.rel_ant_y, tvb(off + 4, 4)); rl:add(f.rel_ant_z, tvb(off + 8, 4))
+        off = off + 12
+        body:add(f.ant_pattern_type, tvb(off, 2)); off = off + 2
+        body:add(f.ant_pattern_len, tvb(off, 2)); off = off + 2
+        body:add(f.tx_freq, tvb(off, 8)); off = off + 8
+        body:add(f.tx_bandwidth, tvb(off, 4)); off = off + 4
+        body:add(f.tx_power, tvb(off, 4)); off = off + 4
+        local system_mod
+        off, system_mod = add_modulation_type(body, tvb, off)
+        body:add(f.crypto_system, tvb(off, 2)); off = off + 2
+        local ck = body:add(f.crypto_key, tvb(off, 2))
+        ck:add(f.enc_mode, tvb(off, 2))
+        ck:add(f.key_id, tvb(off, 2))
+        off = off + 2
+        local mlen = tvb(off, 1):uint()
+        body:add(f.mod_param_len, tvb(off, 1)); off = off + 1
+        body:add(f.vr_pad, tvb(off, 3)); off = off + 3
+        if mlen > 0 then
+            if system_mod == 11 then
+                -- SINCGARS:16 字节
+                if C.need(tvb, off, 16, body) then
+                    local mp = body:add(tvb(off, 16), "调制参数 (Modulation Parameters)")
+                    mp:add(f.fh_net_id, tvb(off, 2)); off = off + 2
+                    mp:add(f.fh_set_id, tvb(off, 2)); off = off + 2
+                    mp:add(f.fh_lo_set, tvb(off, 2)); off = off + 2
+                    mp:add(f.fh_start, tvb(off, 1)); off = off + 1
+                    mp:add(f.fh_reserved, tvb(off, 1)); off = off + 1
+                    mp:add(f.fh_sync, tvb(off, 4)); off = off + 4
+                    mp:add(f.fh_key, tvb(off, 2)); off = off + 2
+                    mp:add(f.fh_clear, tvb(off, 1)); off = off + 1
+                    mp:add(f.pad8, tvb(off, 1)); off = off + 1
+                end
+            elseif system_mod == 9 or system_mod == 10 then
+                -- JTIDS/MIDS:8 字节,记录级字段少,直接按原始数据+长度提示
+                if C.need(tvb, off, 8, body) then
+                    local mp = body:add(tvb(off, 8), "调制参数 (Modulation Parameters)")
+                    mp:add(f.mod_param_dump, tvb(off, 8))
+                    off = off + 8
+                end
+            else
+                if C.need(tvb, off, mlen, body) then
+                    body:add(f.mod_param_dump, tvb(off, mlen))
+                    off = off + mlen
+                end
+            end
+        end
+        return off
+    end
+    C.register(25, dissect_transmitter, "发射机 Transmitter")
+end

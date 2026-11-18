@@ -1,0 +1,322 @@
+-- siman/base.luamod — 仿真管理族基础 PDU(PDU 11-22 / 73)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 时钟时间/实体对/Datum ID 列表在 siman/shared.luamod;
+-- 定长/变长 Datum 记录在 records.luamod(与聚合状态 33 跨族共用)。
+
+return function(C)
+    local f             = C.proto.fields
+
+    ---------------------------------------------------------------- 枚举 [UID 67-74]
+    local V_REASON      = {
+        [0] = "其他 Other",
+        [1] = "暂停(课间休息) Recess",
+        [2] = "终止 Termination",
+        [3] = "系统故障 System Failure",
+        [4] = "安全违规 Security Violation",
+        [5] = "实体重构 Entity Reconstitution",
+        [6] = "停止以复位 Stop for reset",
+        [7] = "停止以重启 Stop for restart",
+        [8] = "中止训练,恢复战术运行 Abort Training Return to Tactical Operations",
+    }
+    local V_ACK_FLAG    = {
+        [1] = "创建实体 Create Entity",
+        [2] = "删除实体 Remove Entity",
+        [3] = "启动/恢复 Start/Resume",
+        [4] = "停止/冻结 Stop/Freeze",
+        [5] = "移交所有权 Transfer Ownership",
+    }
+    local V_RESP_FLAG   = {
+        [0] = "其他 Other",
+        [1] = "能够执行 Able to comply",
+        [2] = "无法执行 Unable to comply",
+        [3] = "等待操作员动作 Pending Operator Action",
+        [4] = "请求更多信息 Request more information",
+    }
+    local V_REQ_STATUS  = {
+        [0] = "其他 Other",
+        [1] = "待定 Pending",
+        [2] = "执行中 Executing",
+        [3] = "部分完成 Partially Complete",
+        [4] = "完成 Complete",
+        [5] = "请求被拒绝 Request rejected",
+        [6] = "立即重发请求 Retransmit request now",
+        [7] = "稍后重发请求 Retransmit request later",
+        [8] = "无效时间参数 Invalid time parameters",
+        [9] = "超出仿真时间 Simulation time exceeded",
+        [10] = "请求完成 Request done",
+        [100] = "TACCSF 视距应答——类型 1",
+        [101] = "TACCSF 视距应答——类型 2",
+        [201] = "加入演习请求被拒绝 Join Exercise Request Rejected",
+    }
+    -- 动作 ID [UID 71] 64 项全表在 enums_data(v37)
+    local V_RELIABILITY = { [0] = "确认 Acknowledged", [1] = "不确认 Unacknowledged" }
+
+    ---------------------------------------------------------------- 字段
+    f.reason            = ProtoField.uint8("displus.reason", "原因 (Reason)", base.DEC, V_REASON)
+    f.frozen_behavior   = ProtoField.uint8("displus.frozen_behavior", "冻结行为 (Frozen Behavior)", base.HEX)
+    f.fb_run_clock      = ProtoField.bool("displus.frozen_behavior.run_clock", "运行仿真时钟 (Run simulation clock)", 8, nil,
+        0x01)
+    f.fb_send_update    = ProtoField.bool("displus.frozen_behavior.send_update", "发送更新 (Send updates)", 8, nil, 0x02)
+    f.fb_recv_update    = ProtoField.bool("displus.frozen_behavior.recv_update", "处理更新 (Process updates)", 8, nil, 0x04)
+    f.ack_flag          = ProtoField.uint16("displus.acknowledge_flag", "确认标志 (Acknowledge Flag)", base.DEC, V_ACK_FLAG)
+    f.resp_flag         = ProtoField.uint16("displus.response_flag", "响应标志 (Response Flag)", base.DEC, V_RESP_FLAG)
+    f.req_status        = ProtoField.uint32("displus.request_status", "请求状态 (Request Status)", base.DEC, V_REQ_STATUS)
+    f.action_id         = ProtoField.uint32("displus.action_id", "动作ID (Action ID)", base.DEC, C.ENUMS.ACTION_ID)
+    f.event_type        = ProtoField.uint32("displus.event_type", "事件类型 (Event Type)", base.DEC, C.ENUMS.EVENT_TYPE)
+    f.reliability       = ProtoField.uint8("displus.reliability", "可靠性服务 (Reliability)", base.DEC, V_RELIABILITY)
+    f.time_interval32   = ProtoField.uint32("displus.time_interval", "时间间隔 (Time Interval)", base.DEC)
+    f.num_fixed         = ProtoField.uint32("displus.num_fixed_data", "定长数据数 (Number of Fixed Datum)", base.DEC)
+    f.num_var           = ProtoField.uint32("displus.num_variable_data", "变长数据数 (Number of Variable Datum)", base.DEC)
+    f.num_fixed_id      = ProtoField.uint32("displus.num_fixed_datum_id", "定长数据ID数 (Number of Fixed Datum IDs)", base
+    .DEC)
+    f.num_var_id        = ProtoField.uint32("displus.num_variable_datum_id", "变长数据ID数 (Number of Variable Datum IDs)",
+        base.DEC)
+
+    -- 应用控制(73)
+    f.time_interval8    = ProtoField.uint8("displus.appctl_time_interval", "时间间隔 (Time Interval)", base.DEC)
+    f.control_id        = ProtoField.uint8("displus.control_id", "控制ID (Control ID)", base.DEC)
+    f.orig_app_type     = ProtoField.uint16("displus.orig_app_type", "发起应用类型 (Originating App Type)", base.DEC,
+        C.ENUMS.APP_TYPE)
+    f.recv_app_type     = ProtoField.uint16("displus.recv_app_type", "接收应用类型 (Receiving App Type)", base.DEC,
+        C.ENUMS.APP_TYPE)
+    f.num_parts         = ProtoField.uint8("displus.num_parts", "总分片数 (Number of Parts)", base.DEC)
+    f.current_part      = ProtoField.uint8("displus.current_part", "当前分片 (Current Part)", base.DEC)
+    f.num_var_records   = ProtoField.uint16("displus.num_variable_records", "变记录数 (Number of Variable Records)", base
+    .DEC)
+    f.vr_type           = ProtoField.uint32("displus.vr_type", "记录类型 (Record Type)", base.DEC, C.ENUMS.RECORD_TYPE)
+    f.vr_length         = ProtoField.uint16("displus.vr_length", "记录长度 (Record Length)", base.DEC)
+    f.vr_data           = ProtoField.bytes("displus.record_data", "记录数据 (Record Data)")
+
+    ---------------------------------------------------------------- 公共段
+    local function datums(tvb, body, off, nf, nv)
+        off = C.add_fixed_datums(body, tvb, off, "定长数据", nf)
+        off = C.add_variable_datums(body, tvb, off, "变长数据", nv)
+        return off
+    end
+
+    ---------------------------------------------------------------- 各 PDU
+    -- 11/12 创建/移除实体:origin(6) receiving(6) request_id(4)
+    local function dissect_siman_entity(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 16, body) then return off end
+        off = C.siman.origin_pair(tvb, body, off)
+        body:add(f.request_id, tvb(off, 4)); off = off + 4
+        return off
+    end
+
+    -- 13 启动/恢复:pair + real(8) + sim(8) + request_id(4)
+    local function dissect_start_resume(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 32, body) then return off end
+        off = C.siman.origin_pair(tvb, body, off)
+        off = C.add_clock_time(body, tvb, off, "真实世界时间 (Real World Time)")
+        off = C.add_clock_time(body, tvb, off, "仿真时间 (Simulation Time)")
+        body:add(f.request_id, tvb(off, 4)); off = off + 4
+        return off
+    end
+
+    -- 14 停止/冻结:pair + real(8) + reason(1) + behavior(1) + pad(2) + request_id(4)
+    local function dissect_stop_freeze(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 28, body) then return off end
+        off = C.siman.origin_pair(tvb, body, off)
+        off = C.add_clock_time(body, tvb, off, "真实世界时间 (Real World Time)")
+        body:add(f.reason, tvb(off, 1)); off = off + 1
+        local fb = body:add(f.frozen_behavior, tvb(off, 1))
+        fb:add(f.fb_run_clock, tvb(off, 1))
+        fb:add(f.fb_send_update, tvb(off, 1))
+        fb:add(f.fb_recv_update, tvb(off, 1))
+        off = off + 1
+        body:add(f.pad16, tvb(off, 2)); off = off + 2
+        body:add(f.request_id, tvb(off, 4)); off = off + 4
+        return off
+    end
+
+    -- 15/55 确认:pair + ack_flag(2) + resp_flag(2) + request_id(4)
+    local function dissect_acknowledge(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 20, body) then return off end
+        off = C.siman.origin_pair(tvb, body, off)
+        body:add(f.ack_flag, tvb(off, 2)); off = off + 2
+        body:add(f.resp_flag, tvb(off, 2)); off = off + 2
+        body:add(f.request_id, tvb(off, 4)); off = off + 4
+        return off
+    end
+
+    -- 16/56 动作请求:pair [+reliability(1)+pad(3)] + request_id(4) + action_id(4) + numF(4) + numV(4) + datums
+    local function dissect_action_request(tvb, body, off, pinfo, r_series)
+        if not C.need(tvb, off, 24, body) then return off end
+        off = C.siman.origin_pair(tvb, body, off)
+        if r_series then
+            body:add(f.reliability, tvb(off, 1)); off = off + 1
+            body:add(f.vr_pad, tvb(off, 3)); off = off + 3
+        end
+        body:add(f.request_id, tvb(off, 4)); off = off + 4
+        body:add(f.action_id, tvb(off, 4)); off = off + 4
+        local nf, nv = 0, 0
+        if C.need(tvb, off, 8, body) then
+            nf = tvb(off, 4):uint(); body:add(f.num_fixed, tvb(off, 4)); off = off + 4
+            nv = tvb(off, 4):uint(); body:add(f.num_var, tvb(off, 4)); off = off + 4
+        end
+        if nf > C.MAX_RECORDS or nv > C.MAX_RECORDS then
+            body:add(tvb(), string.format("[护栏] 定长/变长数据数 %d/%d 超上限,截断", nf, nv))
+            nf, nv = math.min(nf, C.MAX_RECORDS), math.min(nv, C.MAX_RECORDS)
+        end
+        return datums(tvb, body, off, nf, nv)
+    end
+
+    -- 17/57 动作响应:pair + request_id(4) + req_status(4) + numF + numV + datums
+    local function dissect_action_response(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 24, body) then return off end
+        off = C.siman.origin_pair(tvb, body, off)
+        body:add(f.request_id, tvb(off, 4)); off = off + 4
+        body:add(f.req_status, tvb(off, 4)); off = off + 4
+        local nf, nv = 0, 0
+        if C.need(tvb, off, 8, body) then
+            nf = tvb(off, 4):uint(); body:add(f.num_fixed, tvb(off, 4)); off = off + 4
+            nv = tvb(off, 4):uint(); body:add(f.num_var, tvb(off, 4)); off = off + 4
+        end
+        if nf > C.MAX_RECORDS or nv > C.MAX_RECORDS then
+            nf, nv = math.min(nf, C.MAX_RECORDS), math.min(nv, C.MAX_RECORDS)
+        end
+        return datums(tvb, body, off, nf, nv)
+    end
+
+    -- 18/58 数据查询:pair [+reliability(1)+pad(3)] + request_id(4) + time_interval(4) + numFid + numVid + id 列表
+    local function dissect_data_query(tvb, body, off, pinfo, r_series)
+        if not C.need(tvb, off, 24, body) then return off end
+        off = C.siman.origin_pair(tvb, body, off)
+        if r_series then
+            body:add(f.reliability, tvb(off, 1)); off = off + 1
+            body:add(f.vr_pad, tvb(off, 3)); off = off + 3
+        end
+        body:add(f.request_id, tvb(off, 4)); off = off + 4
+        body:add(f.time_interval32, tvb(off, 4)); off = off + 4
+        local nf, nv = 0, 0
+        if C.need(tvb, off, 8, body) then
+            nf = tvb(off, 4):uint(); body:add(f.num_fixed_id, tvb(off, 4)); off = off + 4
+            nv = tvb(off, 4):uint(); body:add(f.num_var_id, tvb(off, 4)); off = off + 4
+        end
+        if nf > C.MAX_RECORDS or nv > C.MAX_RECORDS then
+            nf, nv = math.min(nf, C.MAX_RECORDS), math.min(nv, C.MAX_RECORDS)
+        end
+        off = C.siman.add_datum_ids(body, tvb, off, "定长数据ID (Fixed datum ids)", nf)
+        off = C.siman.add_datum_ids(body, tvb, off, "变长数据ID (Variable datum ids)", nv)
+        return off
+    end
+
+    -- 19/20/59/60 数据:pair [+reliability(1)+pad(3)] + request_id(4) + pad(4) + numF + numV + datums
+    local function dissect_data(tvb, body, off, pinfo, r_series)
+        if not C.need(tvb, off, 24, body) then return off end
+        off = C.siman.origin_pair(tvb, body, off)
+        if r_series then
+            body:add(f.reliability, tvb(off, 1)); off = off + 1
+            body:add(f.vr_pad, tvb(off, 3)); off = off + 3
+        end
+        body:add(f.request_id, tvb(off, 4)); off = off + 4
+        body:add(f.pad32, tvb(off, 4)); off = off + 4
+        local nf, nv = 0, 0
+        if C.need(tvb, off, 8, body) then
+            nf = tvb(off, 4):uint(); body:add(f.num_fixed, tvb(off, 4)); off = off + 4
+            nv = tvb(off, 4):uint(); body:add(f.num_var, tvb(off, 4)); off = off + 4
+        end
+        if nf > C.MAX_RECORDS or nv > C.MAX_RECORDS then
+            nf, nv = math.min(nf, C.MAX_RECORDS), math.min(nv, C.MAX_RECORDS)
+        end
+        return datums(tvb, body, off, nf, nv)
+    end
+
+    -- 21/61 事件报告:pair + event_type(4) + pad(4) + numF + numV + datums
+    local function dissect_event_report(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 24, body) then return off end
+        off = C.siman.origin_pair(tvb, body, off)
+        body:add(f.event_type, tvb(off, 4)); off = off + 4
+        body:add(f.pad32, tvb(off, 4)); off = off + 4
+        local nf, nv = 0, 0
+        if C.need(tvb, off, 8, body) then
+            nf = tvb(off, 4):uint(); body:add(f.num_fixed, tvb(off, 4)); off = off + 4
+            nv = tvb(off, 4):uint(); body:add(f.num_var, tvb(off, 4)); off = off + 4
+        end
+        if nf > C.MAX_RECORDS or nv > C.MAX_RECORDS then
+            nf, nv = math.min(nf, C.MAX_RECORDS), math.min(nv, C.MAX_RECORDS)
+        end
+        return datums(tvb, body, off, nf, nv)
+    end
+
+    -- 22/62 注释:pair + numF(4) + numV(4) + datums
+    local function dissect_comment(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 20, body) then return off end
+        off = C.siman.origin_pair(tvb, body, off)
+        local nf, nv = 0, 0
+        if C.need(tvb, off, 8, body) then
+            nf = tvb(off, 4):uint(); body:add(f.num_fixed, tvb(off, 4)); off = off + 4
+            nv = tvb(off, 4):uint(); body:add(f.num_var, tvb(off, 4)); off = off + 4
+        end
+        if nf > C.MAX_RECORDS or nv > C.MAX_RECORDS then
+            nf, nv = math.min(nf, C.MAX_RECORDS), math.min(nv, C.MAX_RECORDS)
+        end
+        return datums(tvb, body, off, nf, nv)
+    end
+
+    -- 73 应用控制(实验 V-DIS):pair + reliability(1) + interval(1) + control(1) + pad(1)
+    --   + orig_type(2) + recv_type(2) + request_id(4) + parts(1) + current(1) + numVR(2)
+    --   + 变记录循环{type u32 + length u16 + data(len-6) + 8字节对齐填充}
+    local function dissect_app_control(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 24, body) then return off end
+        off = C.siman.origin_pair(tvb, body, off)
+        body:add(f.reliability, tvb(off, 1)); off = off + 1
+        body:add(f.time_interval8, tvb(off, 1)); off = off + 1
+        body:add(f.control_id, tvb(off, 1)); off = off + 1
+        body:add(f.pad8, tvb(off, 1)); off = off + 1
+        body:add(f.orig_app_type, tvb(off, 2)); off = off + 2
+        body:add(f.recv_app_type, tvb(off, 2)); off = off + 2
+        body:add(f.request_id, tvb(off, 4)); off = off + 4
+        body:add(f.num_parts, tvb(off, 1)); off = off + 1
+        body:add(f.current_part, tvb(off, 1)); off = off + 1
+        local nvr = tvb(off, 2):uint()
+        body:add(f.num_var_records, tvb(off, 2)); off = off + 2
+        if nvr > C.MAX_RECORDS then nvr = C.MAX_RECORDS end
+        for i = 1, nvr do
+            if not C.need(tvb, off, 6, body) then return off end
+            local rtype    = tvb(off, 4):uint()
+            local rlen     = tvb(off + 4, 2):uint()
+            local dlen     = rlen - 6
+            local padbytes = 8 - (rlen % 8)
+            if padbytes == 8 then padbytes = 0 end
+            local rec = body:add(tvb(off, math.min(rlen, tvb:len() - off)),
+                string.format("变记录 (Variable Record) [%d]", i - 1))
+            rec:add(f.vr_type, tvb(off, 4)); off = off + 4
+            rec:add(f.vr_length, tvb(off, 2)); off = off + 2
+            if dlen > 0 and C.need(tvb, off, dlen, body) then
+                rec:add(f.vr_data, tvb(off, dlen)); off = off + dlen
+            end
+            if padbytes > 0 and C.need(tvb, off, padbytes, body) then
+                rec:add(f.vr_pad, tvb(off, padbytes)); off = off + padbytes
+            end
+        end
+        return off
+    end
+
+    ---------------------------------------------------------------- 暴露给 reliable.luamod 复用
+    C.siman_base = {
+        dissect_acknowledge     = dissect_acknowledge,
+        dissect_action_request  = dissect_action_request,
+        dissect_action_response = dissect_action_response,
+        dissect_data_query      = dissect_data_query,
+        dissect_data            = dissect_data,
+        dissect_event_report    = dissect_event_report,
+        dissect_comment         = dissect_comment,
+    }
+
+    ---------------------------------------------------------------- 注册
+    C.register(11, dissect_siman_entity, "创建实体 Create Entity")
+    C.register(12, dissect_siman_entity, "移除实体 Remove Entity")
+    C.register(13, dissect_start_resume, "启动/恢复 Start/Resume")
+    C.register(14, dissect_stop_freeze, "停止/冻结 Stop/Freeze")
+    C.register(15, dissect_acknowledge, "确认 Acknowledge")
+    C.register(16, dissect_action_request, "动作请求 Action Request")
+    C.register(17, dissect_action_response, "动作响应 Action Response")
+    C.register(18, dissect_data_query, "数据查询 Data Query")
+    C.register(19, dissect_data, "设置数据 Set Data")
+    C.register(20, dissect_data, "数据 Data")
+    C.register(21, dissect_event_report, "事件报告 Event Report")
+    C.register(22, dissect_comment, "注释 Comment")
+    C.register(73, dissect_app_control, "应用控制 Application Control")
+end

@@ -1,0 +1,35 @@
+-- warfare/fire.luamod — 开火 PDU(PDU 2,作战族)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 布局:Firing(6) Target(6) Munition(6) EventID(6) mission(u32)
+-- WorldLocation(24) BurstDescriptor(16) Velocity(12) range(f32)
+
+return function(C)
+    local f = C.proto.fields
+
+    f.fire_mission_index = ProtoField.uint32("displus.fire_mission_index",
+        "射击任务索引 (Fire Mission Index)", base.DEC)
+    f.fire_loc_x = ProtoField.double("displus.fire_location_x", "X (Location)")
+    f.fire_loc_y = ProtoField.double("displus.fire_location_y", "Y (Location)")
+    f.fire_loc_z = ProtoField.double("displus.fire_location_z", "Z (Location)")
+    f.range = ProtoField.float("displus.range", "射程 (Range) m")
+
+    local function dissect_fire(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 72, body) then return off end
+        off = C.add_entity_id(body, tvb, off, "射击实体ID (Firing Entity ID)")
+        off = C.add_entity_id(body, tvb, off, "目标实体ID (Target Entity ID)")
+        off = C.add_entity_id(body, tvb, off, "弹药ID (Munition ID)")
+        off = C.add_event_id(body, tvb, off, "事件ID (Event ID)")
+        body:add(f.fire_mission_index, tvb(off, 4)); off = off + 4
+        local l = body:add(tvb(off, 24), "世界坐标位置 (Location in World Coordinates)")
+        l:add(f.fire_loc_x, tvb(off, 8)); l:add(f.fire_loc_y, tvb(off + 8, 8)); l:add(f.fire_loc_z, tvb(off + 16, 8))
+        off = off + 24
+        off = C.add_burst_descriptor(body, tvb, off)
+        local v = body:add(tvb(off, 12), "速度 (Velocity)")
+        v:add(f.w_vel_x, tvb(off, 4)); v:add(f.w_vel_y, tvb(off + 4, 4)); v:add(f.w_vel_z, tvb(off + 8, 4))
+        off = off + 12
+        body:add(f.range, tvb(off, 4)); off = off + 4
+        return off
+    end
+    C.register(2, dissect_fire, "开火 Fire")
+end

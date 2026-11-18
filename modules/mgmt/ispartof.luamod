@@ -1,0 +1,50 @@
+-- mgmt/ispartof.luamod — IsPartOf PDU(PDU 36,实体管理族)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 布局(v7 表 186):发起仿真ID(6=site/app/参照号) 接收实体ID(6)
+--       关系(4=性质2[UID 210]+位置2[UID 211])
+--       部件位置(12=分量A/B/C 各 f32)
+--       命名位置ID(4=站位名称2[UID 212]+站位编号2)
+--       部件类型(8);body 总 40 字节
+
+return function(C)
+    local f            = C.proto.fields
+
+    f.ipo_ref          = ProtoField.uint16("displus.originating_reference_number",
+        "参照号 (Reference Number)", base.DEC)
+    f.ipo_nature       = ProtoField.uint16("displus.ispartof_nature",
+        "性质 (Relationship Nature)", base.DEC)
+    f.ipo_position     = ProtoField.uint16("displus.ispartof_position",
+        "位置 (Relationship Position)", base.DEC)
+    f.ipo_pl_a         = ProtoField.float("displus.ispartof_part_location_a", "分量A (Component A)")
+    f.ipo_pl_b         = ProtoField.float("displus.ispartof_part_location_b", "分量B (Component B)")
+    f.ipo_pl_c         = ProtoField.float("displus.ispartof_part_location_c", "分量C (Component C)")
+    f.ipo_station_name = ProtoField.uint16("displus.ispartof_station_name",
+        "站位名称 (Station Name)", base.DEC)
+    f.ipo_station_num  = ProtoField.uint16("displus.ispartof_station_number",
+        "站位编号 (Station Number)", base.DEC)
+
+    local function dissect_is_part_of(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 40, body) then return off end
+        local org = body:add(tvb(off, 6), "发起仿真ID (Originating Simulation ID)")
+        org:add(C.proto.fields.sim_site, tvb(off, 2))
+        org:add(C.proto.fields.sim_app, tvb(off + 2, 2))
+        org:add(f.ipo_ref, tvb(off + 4, 2))
+        off = off + 6
+        off = C.add_entity_id(body, tvb, off, "接收实体ID (Receiving Entity ID)")
+        local rel = body:add(tvb(off, 4), "关系 (Relationship)")
+        rel:add(f.ipo_nature, tvb(off, 2))
+        rel:add(f.ipo_position, tvb(off + 2, 2))
+        off = off + 4
+        local pl = body:add(tvb(off, 12), "部件位置 (Part Location)")
+        pl:add(f.ipo_pl_a, tvb(off, 4)); pl:add(f.ipo_pl_b, tvb(off + 4, 4)); pl:add(f.ipo_pl_c, tvb(off + 8, 4))
+        off = off + 12
+        local nl = body:add(tvb(off, 4), "命名位置ID (Named Location ID)")
+        nl:add(f.ipo_station_name, tvb(off, 2))
+        nl:add(f.ipo_station_num, tvb(off + 2, 2))
+        off = off + 4
+        off = C.add_entity_type(body, tvb, off, "部件类型 (Part Type)")
+        return off
+    end
+    C.register(36, dissect_is_part_of, "IsPartOf")
+end

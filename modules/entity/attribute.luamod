@@ -1,0 +1,183 @@
+-- entity/attribute.luamod — 属性 PDU(PDU 72,实体信息族)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 布局:发起仿真地址(4) pad32(4) pad16(2) 属性记录PDU类型(1) 属性记录协议版本(1)
+-- 主属性记录类型(4) 动作码(1) pad8(1) 记录集数(2)
+-- 每集:实体/对象ID(6) 属性记录数(2) + N×{记录类型(4) 记录长度(2) 记录特定字段+填充}
+-- 记录特定字段展开:EE 属性记录族 3500 消隐扇区 / 3501 角度欺骗 / 3502 假目标
+
+return function(C)
+    local f             = C.proto.fields
+
+    f.attr_pdu_type     = ProtoField.uint8("displus.attribute_record_pdu_type",
+        "属性记录PDU类型 (Attribute Record PDU Type)", base.DEC, C.PDU_TYPE_TBL)
+    f.attr_proto_ver    = ProtoField.uint8("displus.attribute_record_protocol_version",
+        "属性记录协议版本 (Attribute Record Protocol Version)", base.DEC, C.VERSION_TBL)
+    f.attr_master_type  = ProtoField.uint32("displus.master_attribute_record_type",
+        "主属性记录类型 (Master Attribute Record Type)", base.DEC, C.ENUMS.RECORD_TYPE)
+    f.attr_action_code  = ProtoField.uint8("displus.attribute_action_code",
+        "动作码 (Action Code)", base.DEC, C.ENUMS.ACTION_CODE)
+    f.attr_set_count    = ProtoField.uint16("displus.attribute_record_set_count",
+        "属性记录集数 (Number of Attribute Record Sets)", base.DEC)
+    f.attr_rec_count    = ProtoField.uint16("displus.attribute_record_count",
+        "属性记录数 (Number of Attribute Records)", base.DEC)
+    f.attr_rec_type     = ProtoField.uint32("displus.attribute_record_type",
+        "记录类型 (Attribute Record Type)", base.DEC, C.ENUMS.RECORD_TYPE)
+    f.attr_rec_len      = ProtoField.uint16("displus.attribute_record_length",
+        "记录长度 (Attribute Record Length)", base.DEC)
+    f.attr_rec_specific = ProtoField.bytes("displus.attribute_record_specific",
+        "记录特定字段+填充 (Record-Specific Fields and Padding)")
+
+    ---------------------------------------------------------------- EE 属性记录字段(6.2.21)
+    -- 状态指示器 [UID 300]
+    local V_EE_STATE    = {
+        [0] = "心跳更新 Heartbeat Update",
+        [1] = "数据已变化 Changed Data Update",
+        [2] = "已停止 Has Ceased",
+    }
+    f.ee_emitter_num    = ProtoField.uint8("displus.ee_emitter_number", "辐射源编号 (Emitter Number)", base.DEC)
+    f.ee_beam_num       = ProtoField.uint8("displus.ee_beam_number", "波束编号 (Beam Number)", base.DEC)
+    f.ee_state          = ProtoField.uint8("displus.ee_state_indicator",
+        "状态指示 (State Indicator)", base.DEC, V_EE_STATE)
+    -- 3500 消隐扇区
+    f.ee_left_az        = ProtoField.float("displus.blank_sector_left_azimuth", "左方位角 (Left Azimuth) rad")
+    f.ee_right_az       = ProtoField.float("displus.blank_sector_right_azimuth", "右方位角 (Right Azimuth) rad")
+    f.ee_lower_el       = ProtoField.float("displus.blank_sector_lower_elevation", "下高低角 (Lower Elevation) rad")
+    f.ee_upper_el       = ProtoField.float("displus.blank_sector_upper_elevation", "上高低角 (Upper Elevation) rad")
+    f.ee_residual       = ProtoField.float("displus.blank_sector_residual_power",
+        "残余功率 (Residual Power) dBm")
+    -- 3501 角度欺骗
+    f.ee_az_off         = ProtoField.float("displus.angle_deception_azimuth_offset", "方位偏移 (Azimuth Offset) rad")
+    f.ee_az_width       = ProtoField.float("displus.angle_deception_azimuth_width", "方位宽度 (Azimuth Width) rad")
+    f.ee_az_rate        = ProtoField.float("displus.angle_deception_azimuth_pull_rate",
+        "方位拖引速率 (Azimuth Pull Rate) rad/s")
+    f.ee_az_acc         = ProtoField.float("displus.angle_deception_azimuth_pull_acceleration",
+        "方位拖引加速度 (Azimuth Pull Accel) rad/s²")
+    f.ee_el_off         = ProtoField.float("displus.angle_deception_elevation_offset", "高低偏移 (Elevation Offset) rad")
+    f.ee_el_width       = ProtoField.float("displus.angle_deception_elevation_width", "高低宽度 (Elevation Width) rad")
+    f.ee_el_rate        = ProtoField.float("displus.angle_deception_elevation_pull_rate",
+        "高低拖引速率 (Elevation Pull Rate) rad/s")
+    f.ee_el_acc         = ProtoField.float("displus.angle_deception_elevation_pull_acceleration",
+        "高低拖引加速度 (Elevation Pull Accel) rad/s²")
+    -- 3502 假目标
+    f.ee_ft_count       = ProtoField.uint16("displus.false_target_count", "假目标数 (False Target Count)", base.DEC)
+    f.ee_walk_spd       = ProtoField.float("displus.false_target_walk_speed", "行走速度 (Walk Speed) m/s")
+    f.ee_walk_acc       = ProtoField.float("displus.false_target_walk_acceleration", "行走加速度 (Walk Acceleration) m/s²")
+    f.ee_max_walk       = ProtoField.float("displus.false_target_maximum_walk_distance",
+        "最大行走距离 (Maximum Walk Distance) m")
+    f.ee_keep_time      = ProtoField.float("displus.false_target_keep_time", "保持时间 (Keep Time) s")
+    f.ee_echo_sp        = ProtoField.float("displus.false_target_echo_spacing", "回波间隔 (Echo Spacing) m")
+    f.ee_first_off      = ProtoField.float("displus.false_target_first_target_offset", "首目标偏移 (First Target Offset) m")
+
+    -- 记录头部后的公共起始:pad16(2) emitter(1) beam(1) state(1) pad8(1),共 6 字节
+    local function ee_common(rec, tvb, off)
+        rec:add(f.pad16, tvb(off, 2))
+        rec:add(f.ee_emitter_num, tvb(off + 2, 1))
+        rec:add(f.ee_beam_num, tvb(off + 3, 1))
+        rec:add(f.ee_state, tvb(off + 4, 1))
+        rec:add(f.pad8, tvb(off + 5, 1))
+        return off + 6
+    end
+
+    -- 3500 消隐扇区属性记录(表 47,40 字节)
+    local function rec_3500(rec, tvb, off)
+        off = ee_common(rec, tvb, off)
+        rec:add(f.ee_left_az, tvb(off, 4))
+        rec:add(f.ee_right_az, tvb(off + 4, 4))
+        rec:add(f.ee_lower_el, tvb(off + 8, 4))
+        rec:add(f.ee_upper_el, tvb(off + 12, 4))
+        rec:add(f.ee_residual, tvb(off + 16, 4))
+        rec:add(f.pad64, tvb(off + 20, 8))
+        return off + 28
+    end
+
+    -- 3501 角度欺骗属性记录(表 48,48 字节)
+    local function rec_3501(rec, tvb, off)
+        off = ee_common(rec, tvb, off)
+        rec:add(f.ee_az_off, tvb(off, 4))
+        rec:add(f.ee_az_width, tvb(off + 4, 4))
+        rec:add(f.ee_az_rate, tvb(off + 8, 4))
+        rec:add(f.ee_az_acc, tvb(off + 12, 4))
+        rec:add(f.ee_el_off, tvb(off + 16, 4))
+        rec:add(f.ee_el_width, tvb(off + 20, 4))
+        rec:add(f.ee_el_rate, tvb(off + 24, 4))
+        rec:add(f.ee_el_acc, tvb(off + 28, 4))
+        rec:add(f.pad32, tvb(off + 32, 4))
+        return off + 36
+    end
+
+    -- 3502 假目标属性记录(表 49,40 字节)
+    local function rec_3502(rec, tvb, off)
+        off = ee_common(rec, tvb, off)
+        rec:add(f.pad16, tvb(off, 2))
+        rec:add(f.ee_ft_count, tvb(off + 2, 2))
+        rec:add(f.ee_walk_spd, tvb(off + 4, 4))
+        rec:add(f.ee_walk_acc, tvb(off + 8, 4))
+        rec:add(f.ee_max_walk, tvb(off + 12, 4))
+        rec:add(f.ee_keep_time, tvb(off + 16, 4))
+        rec:add(f.ee_echo_sp, tvb(off + 20, 4))
+        rec:add(f.ee_first_off, tvb(off + 24, 4))
+        return off + 28
+    end
+
+    local ATTR_REC = {
+        [3500] = rec_3500, [3501] = rec_3501, [3502] = rec_3502,
+    }
+
+    local function dissect_attribute(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 16, body) then return off end
+        off = C.add_simulation_address(body, tvb, off, "发起仿真地址 (Originating Simulation Address)")
+        body:add(f.pad32, tvb(off, 4)); off = off + 4
+        body:add(f.pad16, tvb(off, 2)); off = off + 2
+        body:add(f.attr_pdu_type, tvb(off, 1)); off = off + 1
+        body:add(f.attr_proto_ver, tvb(off, 1)); off = off + 1
+        body:add(f.attr_master_type, tvb(off, 4)); off = off + 4
+        body:add(f.attr_action_code, tvb(off, 1)); off = off + 1
+        body:add(f.pad8, tvb(off, 1)); off = off + 1
+        local nsets = tvb(off, 2):uint()
+        body:add(f.attr_set_count, tvb(off, 2)); off = off + 2
+        if nsets > C.MAX_RECORDS then
+            body:add(tvb(), string.format("[护栏] 记录集数 %d 超上限,仅解析前 %d 集", nsets, C.MAX_RECORDS))
+            nsets = C.MAX_RECORDS
+        end
+
+        for s = 1, nsets do
+            if not C.need(tvb, off, 8, body) then return off end
+            local set = body:add(tvb(off, 8),
+                string.format("属性记录集 (Attribute Record Set) [%d]", s - 1))
+            off = C.add_entity_id(set, tvb, off, "实体/对象ID (Entity/Object ID)")
+            local nrec = tvb(off, 2):uint()
+            set:add(f.attr_rec_count, tvb(off, 2)); off = off + 2
+            if nrec > C.MAX_RECORDS then
+                set:add(tvb(), string.format("[护栏] 属性记录数 %d 超上限,仅解析前 %d 条", nrec, C.MAX_RECORDS))
+                nrec = C.MAX_RECORDS
+            end
+            for r = 1, nrec do
+                if not C.need(tvb, off, 6, set) then return off end
+                local rtype = tvb(off, 4):uint()
+                local rlen  = tvb(off + 4, 2):uint()
+                -- 记录长度含 6 字节头部与 64 位对齐填充;节点覆盖整条记录
+                if rlen < 6 then
+                    set:add(tvb(), string.format("[异常] 记录长度 %d 小于头部 6 字节", rlen))
+                    return off
+                end
+                local rec = set:add(tvb(off, math.min(rlen, tvb:len() - off)),
+                    string.format("属性记录 (Attribute Record) [%d]", r - 1))
+                rec:add(f.attr_rec_type, tvb(off, 4))
+                rec:add(f.attr_rec_len, tvb(off + 4, 2))
+                off = off + 6
+                local rest = rlen - 6
+                if not C.need(tvb, off, rest, rec) then return off end
+                local pfn = ATTR_REC[rtype]
+                if pfn then
+                    off = pfn(rec, tvb, off)
+                else
+                    rec:add(f.attr_rec_specific, tvb(off, rest))
+                    off = off + rest
+                end
+            end
+        end
+        return off
+    end
+    C.register(72, dissect_attribute, "属性 Attribute")
+end

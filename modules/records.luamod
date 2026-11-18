@@ -1,0 +1,281 @@
+-- records.luamod — 公共记录类型 + 跨族共享字段
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 归位规则:仅一族使用的共享内容放该族目录的 shared.luamod;
+-- 跨族共享的公共记录(实体ID/事件ID/实体类型/仿真地址/变参数/Datum)放本文件。
+
+return function(C)
+    local f       = C.proto.fields
+
+    -- 实体ID 三段(全部记录共用,只定义一次,避免 filter 重复注册)
+    f.site        = ProtoField.uint16("displus.entity_id_site", "实体ID-站点 (Entity ID Site)", base.DEC)
+    f.app         = ProtoField.uint16("displus.entity_id_application", "实体ID-应用 (Entity ID Application)", base.DEC)
+    f.entity      = ProtoField.uint16("displus.entity_id_entity", "实体ID-实体 (Entity ID Entity)", base.DEC)
+
+    -- 实体类型七元组
+    f.et_kind     = ProtoField.uint8("displus.et_kind", "种类 (Kind)", base.DEC, C.KIND_TBL)
+    f.et_domain   = ProtoField.uint8("displus.et_domain", "域 (Domain)", base.DEC, C.DOMAIN_TBL)
+    f.et_country  = ProtoField.uint16("displus.et_country", "国家 (Country)", base.DEC, C.COUNTRY_TBL)
+    -- 类别:平台种类时按域选用
+    f.et_cat      = ProtoField.uint8("displus.et_category", "类别 (Category)", base.DEC)
+    f.et_cat_land = ProtoField.uint8("displus.et_category_land", "类别/陆地 (Category / Land)", base.DEC, C.CAT_LAND)
+    f.et_cat_air  = ProtoField.uint8("displus.et_category_air", "类别/空中 (Category / Air)", base.DEC, C.CAT_AIR)
+    f.et_cat_sfc  = ProtoField.uint8("displus.et_category_surface", "类别/水面 (Category / Surface)", base.DEC, C
+    .CAT_SURFACE)
+    f.et_cat_sub  = ProtoField.uint8("displus.et_category_subsurface", "类别/水下 (Category / Subsurface)", base.DEC,
+        C.CAT_SUBSURFACE)
+    f.et_cat_spc  = ProtoField.uint8("displus.et_category_space", "类别/太空 (Category / Space)", base.DEC, C.CAT_SPACE)
+    f.et_subcat   = ProtoField.uint8("displus.et_subcategory", "子类别 (Subcategory)", base.DEC)
+    f.et_specific = ProtoField.uint8("displus.et_specific", "细分 (Specific)", base.DEC)
+    f.et_extra    = ProtoField.uint8("displus.et_extra", "附加 (Extra)", base.DEC)
+
+    -- 事件ID 三段
+    f.ev_site     = ProtoField.uint16("displus.event_id_site", "事件ID-站点 (Site)", base.DEC)
+    f.ev_app      = ProtoField.uint16("displus.event_id_application", "事件ID-应用 (Application)", base.DEC)
+    f.ev_num      = ProtoField.uint16("displus.event_id_number", "事件ID-编号 (Event Number)", base.DEC)
+
+    -- 通用填充
+    f.pad8        = ProtoField.uint8("displus.pad8", "填充 (Padding)", base.HEX)
+    f.pad16       = ProtoField.uint16("displus.pad16", "填充 (Padding)", base.HEX)
+    f.pad32       = ProtoField.uint32("displus.pad32", "填充 (Padding)", base.HEX)
+    f.pad64       = ProtoField.uint64("displus.pad64", "填充 (Padding)", base.HEX)
+    f.raw         = ProtoField.bytes("displus.raw_data", "原始数据 (Raw Data)")
+    -- 通用对齐填充(变长 Datum / 变记录 / 照射器等共用)
+    f.vr_pad      = ProtoField.bytes("displus.alignment_padding", "对齐填充 (Alignment Padding)")
+
+    -- 兵力标识 [UID 6](实体状态 1 / 聚合状态 33 / 雷场状态 37 共用)
+    f.force_id    = ProtoField.uint8("displus.force_id", "兵力 (Force ID)", base.DEC, C.FORCE_TBL)
+
+    -- 管理类公共字段(仿真管理族与转移所有权 35 共用)
+    f.request_id  = ProtoField.uint32("displus.request_id", "请求ID (Request ID)", base.DEC)
+
+    ---------------------------------------------------------------- 实体ID:6 字节
+    -- 返回新偏移和 site/app/entity 三个数值,
+    function C.add_entity_id(t, tvb, off, zh_name)
+        local sub = t:add(tvb(off, 6), zh_name)
+        sub:add(f.site, tvb(off, 2))
+        sub:add(f.app, tvb(off + 2, 2))
+        sub:add(f.entity, tvb(off + 4, 2))
+        return off + 6, tvb(off, 2):uint(), tvb(off + 2, 2):uint(), tvb(off + 4, 2):uint()
+    end
+
+    ---------------------------------------------------------------- 事件ID:6 字节
+    function C.add_event_id(t, tvb, off, zh_name)
+        local sub = t:add(tvb(off, 6), zh_name)
+        sub:add(f.ev_site, tvb(off, 2))
+        sub:add(f.ev_app, tvb(off + 2, 2))
+        sub:add(f.ev_num, tvb(off + 4, 2))
+        return off + 6
+    end
+
+    ---------------------------------------------------------------- 仿真地址:4 字节(6.2.80)
+    f.sim_site = ProtoField.uint16("displus.sim_site", "仿真地址-站点 (Site)", base.DEC)
+    f.sim_app  = ProtoField.uint16("displus.sim_application", "仿真地址-应用 (Application)", base.DEC)
+
+    function C.add_simulation_address(t, tvb, off, zh_name)
+        local sub = t:add(tvb(off, 4), zh_name)
+        sub:add(f.sim_site, tvb(off, 2))
+        sub:add(f.sim_app, tvb(off + 2, 2))
+        return off + 4
+    end
+
+    ---------------------------------------------------------------- 实体类型:8 字节
+    -- "Entity Type, (1:1:0:1:0:0:0)" 格式
+    function C.add_entity_type(t, tvb, off, zh_name)
+        local k, d  = tvb(off, 1):uint(), tvb(off + 1, 1):uint()
+        local c     = tvb(off + 2, 2):uint()
+        local ca, s = tvb(off + 4, 1):uint(), tvb(off + 5, 1):uint()
+        local sp, e = tvb(off + 6, 1):uint(), tvb(off + 7, 1):uint()
+        local sub   = t:add(tvb(off, 8),
+            string.format("%s, (%d:%d:%d:%d:%d:%d:%d)", zh_name, k, d, c, ca, s, sp, e))
+        sub:add(f.et_kind, tvb(off, 1))
+        sub:add(f.et_domain, tvb(off + 1, 1))
+        sub:add(f.et_country, tvb(off + 2, 2))
+        -- 仅 kind=平台(1) 时按域换类别表,其余用裸类别
+        local cat_field = f.et_cat
+        if k == 1 then
+            if d == 1 then
+                cat_field = f.et_cat_land
+            elseif d == 2 then
+                cat_field = f.et_cat_air
+            elseif d == 3 then
+                cat_field = f.et_cat_sfc
+            elseif d == 4 then
+                cat_field = f.et_cat_sub
+            elseif d == 5 then
+                cat_field = f.et_cat_spc
+            end
+        end
+        sub:add(cat_field, tvb(off + 4, 1))
+        sub:add(f.et_subcat, tvb(off + 5, 1))
+        sub:add(f.et_specific, tvb(off + 6, 1))
+        sub:add(f.et_extra, tvb(off + 7, 1))
+        return off + 8, k, d
+    end
+
+    ---------------------------------------------------------------- 变参数记录(6.2.94)
+    -- 实体状态 1 / 实体状态更新 67 / 爆炸 3 共用;
+    f.num_art_params  = ProtoField.uint8("displus.num_art_params",
+        "变参数数量 (Number of Articulation Parameters)", base.DEC)
+    -- 变参数记录 [UID 56](v37:[2] 分离、[3] 实体类型、[4] 实体关联;
+    -- v28/v34 旧义 [2] 为照射实体偏移、[3] 为实体关联,已按 v37 修订)
+    local V_VPTYPE    = {
+        [0] = "铰接部件 Articulated Part",
+        [1] = "附属部件 Attached Part",
+        [2] = "分离 Separation",
+        [3] = "实体类型 Entity Type",
+        [4] = "实体关联 Entity Association",
+    }
+    f.vp_type         = ProtoField.uint8("displus.vp_type", "记录类型 (Variable Parameter Type)",
+        base.DEC, V_VPTYPE)
+    f.vp_change       = ProtoField.uint8("displus.vp.change", "变更 (Change)", base.DEC)
+    f.vp_part_id      = ProtoField.uint16("displus.vp.part_attached_to_id",
+        "所属部件ID (Part Attached To ID)", base.DEC)
+    f.vp_artic_type   = ProtoField.uint32("displus.vp.artic_param_type",
+        "参数类型 (Parameter Type)", base.DEC)
+    f.vp_value        = ProtoField.float("displus.vp.parameter_value",
+        "参数值 (Parameter Value)")
+    f.vp_pad32        = ProtoField.uint32("displus.vp.padding", "填充 (Padding)", base.HEX)
+    f.vp_attached_ind = ProtoField.uint8("displus.vp.attached_indicator",
+        "附属指示 (Attached/Detached)", base.DEC)
+    f.vp_offset_type  = ProtoField.uint8("displus.vp.offset_type",
+        "偏移类型 (Offset Type)", base.DEC)
+    f.vp_offset_x     = ProtoField.float("displus.vp.offset_x", "X (Offset)")
+    f.vp_offset_y     = ProtoField.float("displus.vp.offset_y", "Y (Offset)")
+    f.vp_offset_z     = ProtoField.float("displus.vp.offset_z", "Z (Offset)")
+    f.vp_assoc_status = ProtoField.uint8("displus.vp.association_status",
+        "关联状态 (Association Status)", base.DEC)
+    f.vp_assoc_type   = ProtoField.uint8("displus.vp.association_type",
+        "关联类型 (Association Type)", base.DEC)
+    f.vp_own_station  = ProtoField.uint16("displus.vp.own_station_location",
+        "本站位置 (Own Station Location)", base.DEC)
+    f.vp_phys_conn    = ProtoField.uint8("displus.vp.phys_conn_type",
+        "物理连接类型 (Physical Connection Type)", base.DEC)
+    f.vp_group_member = ProtoField.uint8("displus.vp.group_member_type",
+        "组成员类型 (Group Member Type)", base.DEC)
+    f.vp_group_number = ProtoField.uint16("displus.vp.group_number",
+        "组号 (Group Number)", base.DEC)
+    -- 分离记录 [UID 56 值 2](IEEE 1278.1-2012 Separation VP Record)
+    f.vp_sep_reason   = ProtoField.uint8("displus.vp.separation_reason",
+        "分离原因 (Reason for Separation)", base.DEC, C.ENUMS.SEPARATION_REASON)
+    f.vp_sep_pre      = ProtoField.uint8("displus.vp.pre_entity_indicator",
+        "前实体指示器 (Pre-Entity Indicator)", base.DEC, C.ENUMS.PRE_ENTITY_IND)
+    f.vp_sep_pad      = ProtoField.bytes("displus.vp.separation_padding",
+        "填充 (Padding)")
+    -- 实体类型记录 [UID 56 值 3](IEEE 1278.1-2012 Entity Type VP Record)
+    -- 更改指示器 [UID 320]
+    f.vp_et_change    = ProtoField.uint8("displus.vp.entity_type_change",
+        "更改指示器 (Change Indicator)", base.DEC,
+        {
+            [0] = "首次报告或无变化 Initial Report or No Change",
+            [1] = "有变化 Change Since Last Issuance"
+        })
+    f.vp_et_pad       = ProtoField.bytes("displus.vp.entity_type_padding",
+        "填充 (Padding)")
+
+    function C.add_variable_params(t, tvb, off, n)
+        for i = 1, n do
+            if not C.need(tvb, off, 16, t) then return off end
+            local rec = t:add(tvb(off, 16),
+                string.format("变参数 (Variable Parameter) [%d]", i - 1))
+            local vtype = tvb(off, 1):uint()
+            rec:add(f.vp_type, tvb(off, 1))
+            off = off + 1
+            if vtype == 0 then
+                -- 铰接部件:change(1) part_id(2) param_type(4) value(f32) pad(4)
+                rec:add(f.vp_change, tvb(off, 1)); off = off + 1
+                rec:add(f.vp_part_id, tvb(off, 2)); off = off + 2
+                rec:add(f.vp_artic_type, tvb(off, 4)); off = off + 4
+                rec:add(f.vp_value, tvb(off, 4)); off = off + 4
+                rec:add(f.vp_pad32, tvb(off, 4)); off = off + 4
+            elseif vtype == 1 then
+                -- 附属部件:indicator(1) part_id(2) param_type(4) EntityType(8)
+                rec:add(f.vp_attached_ind, tvb(off, 1)); off = off + 1
+                rec:add(f.vp_part_id, tvb(off, 2)); off = off + 2
+                rec:add(f.vp_artic_type, tvb(off, 4)); off = off + 4
+                off = C.add_entity_type(rec, tvb, off, "部件类型 (Part Type)")
+            elseif vtype == 2 then
+                -- 分离(IEEE 1278.1-2012 Separation VP):
+                -- reason(1) preIndicator(1) EntityID(6) pad(7)
+                rec:add(f.vp_sep_reason, tvb(off, 1)); off = off + 1
+                rec:add(f.vp_sep_pre, tvb(off, 1)); off = off + 1
+                off = C.add_entity_id(rec, tvb, off, "分离实体ID (Separating Entity ID)")
+                rec:add(f.vp_sep_pad, tvb(off, 7)); off = off + 7
+            elseif vtype == 3 then
+                -- 实体类型(IEEE 1278.1-2012 Entity Type VP):
+                -- change(1) EntityType(8) pad(6)
+                rec:add(f.vp_et_change, tvb(off, 1)); off = off + 1
+                off = C.add_entity_type(rec, tvb, off, "实体类型 (Entity Type)")
+                rec:add(f.vp_et_pad, tvb(off, 6)); off = off + 6
+            elseif vtype == 4 then
+                -- 实体关联:change(1) status(1) type(1) EntityID(6) station(2) conn(1) member(1) group(2)
+                rec:add(f.vp_change, tvb(off, 1)); off = off + 1
+                rec:add(f.vp_assoc_status, tvb(off, 1)); off = off + 1
+                rec:add(f.vp_assoc_type, tvb(off, 1)); off = off + 1
+                off = C.add_entity_id(rec, tvb, off, "对象标识 (Object Identifier)")
+                rec:add(f.vp_own_station, tvb(off, 2)); off = off + 2
+                rec:add(f.vp_phys_conn, tvb(off, 1)); off = off + 1
+                rec:add(f.vp_group_member, tvb(off, 1)); off = off + 1
+                rec:add(f.vp_group_number, tvb(off, 2)); off = off + 2
+            else
+                rec:add(f.raw, tvb(off, 15))
+                off = off + 15
+            end
+        end
+        return off
+    end
+
+    ---------------------------------------------------------------- Datum 记录(6.2.21/6.2.22)
+    -- 仿真管理族 16-22/R 系列 与聚合状态 33 共用
+    f.datum_id    = ProtoField.uint32("displus.datum_id", "数据ID (Datum ID)", base.DEC)
+    f.fix_val_raw = ProtoField.bytes("displus.fixed_datum_value", "值-原始 (Value raw)")
+    f.fix_val_int = ProtoField.uint32("displus.fixed_datum_value_as_int", "值-整数 (Value as int)")
+    f.fix_val_flt = ProtoField.float("displus.fixed_datum_value_as_float", "值-浮点 (Value as float)")
+    f.var_len     = ProtoField.uint32("displus.datum_length", "数据长度-位 (Datum Length bits)", base.DEC)
+    f.var_val_raw = ProtoField.bytes("displus.variable_datum_value", "值-原始 (Value raw)")
+    f.var_val_txt = ProtoField.string("displus.variable_datum_value_as_text", "值-文本 (Value as text)")
+    local floor   = math.floor
+
+    -- 定长 Datum 记录:8 字节 xN(镜像内置同时按 原始/整数/浮点 三视图显示)
+    function C.add_fixed_datums(t, tvb, off, zh_name, n)
+        for i = 1, n do
+            if not C.need(tvb, off, 8, t) then return off end
+            local rec = t:add(tvb(off, 8), string.format("%s (Fixed Datum) [%d]", zh_name, i - 1))
+            rec:add(f.datum_id, tvb(off, 4))
+            rec:add(f.fix_val_raw, tvb(off + 4, 4))
+            rec:add(f.fix_val_int, tvb(off + 4, 4))
+            rec:add(f.fix_val_flt, tvb(off + 4, 4))
+            off = off + 8
+        end
+        return off
+    end
+
+    -- 变长 Datum 记录 xN:id u32 + 长度u32(位) + 数据(向上取整字节) + 8字节对齐填充
+    function C.add_variable_datums(t, tvb, off, zh_name, n)
+        for i = 1, n do
+            if not C.need(tvb, off, 8, t) then return off end
+            local rec
+            -- 长度可变,先建节点再补 end(镜像内置 proto_item_set_end 行为)
+            local nbytes
+            if not C.need(tvb, off, 8, t) then return off end
+            local bits = tvb(off + 4, 4):uint()
+            nbytes = floor(bits / 8)
+            if bits % 8 > 0 then nbytes = nbytes + 1 end
+            local pad = nbytes % 8
+            if pad > 0 then pad = 8 - pad end
+            if not C.need(tvb, off, 8 + nbytes + pad, t) then return off end
+            rec = t:add(tvb(off, 8 + nbytes + pad),
+                string.format("%s (Variable Datum) [%d]", zh_name, i - 1))
+            rec:add(f.datum_id, tvb(off, 4)); off = off + 4
+            rec:add(f.var_len, tvb(off, 4)); off = off + 4
+            rec:add(f.var_val_raw, tvb(off, nbytes))
+            rec:add(f.var_val_txt, tvb(off, nbytes))
+            off = off + nbytes
+            if pad > 0 then
+                rec:add(f.vr_pad, tvb(off, pad))
+                off = off + pad
+            end
+        end
+        return off
+    end
+end

@@ -1,0 +1,48 @@
+-- emission/designator.luamod — 照射器 PDU(PDU 24,分布发射再生族)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 布局:Designating(6) code_name(2) Designated(6) code(2) power(f32) wavelength(f32)
+--       照射点相对被照实体(12,f32) 照射点位置(24,f64) dr_algorithm(1) pad24(3)
+--       线加速度(12,f32);body 总 76 字节
+-- 照射器系统名称 [UID 80] 108 项(enums_data);照射代码 [UID 81] 已弃用无值
+
+return function(C)
+    local f         = C.proto.fields
+
+    f.ds_code_name  = ProtoField.uint16("displus.designator_code_name", "代码名 (Code Name)",
+        base.DEC, C.ENUMS.DESIGNATOR_NAME)
+    f.ds_code       = ProtoField.uint16("displus.designator_designator_code", "照射代码 (Designator Code)", base.DEC)
+    f.ds_power      = ProtoField.float("displus.designator_power", "功率 (Power) W")
+    f.ds_wavelength = ProtoField.float("displus.designator_wavelength", "波长 (Wavelength) um")
+    f.ds_spot_x     = ProtoField.float("displus.designator_spot_x", "X (Spot wrt Entity)")
+    f.ds_spot_y     = ProtoField.float("displus.designator_spot_y", "Y (Spot wrt Entity)")
+    f.ds_spot_z     = ProtoField.float("displus.designator_spot_z", "Z (Spot wrt Entity)")
+    f.ds_loc_x      = ProtoField.double("displus.designator_spot_location_x", "X (Spot Location)")
+    f.ds_loc_y      = ProtoField.double("displus.designator_spot_location_y", "Y (Spot Location)")
+    f.ds_loc_z      = ProtoField.double("displus.designator_spot_location_z", "Z (Spot Location)")
+
+    local function dissect_designator(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 76, body) then return off end
+        off = C.add_entity_id(body, tvb, off, "照射实体ID (Designating Entity ID)")
+        body:add(f.ds_code_name, tvb(off, 2)); off = off + 2
+        off = C.add_entity_id(body, tvb, off, "被照射实体ID (Designated Entity ID)")
+        body:add(f.ds_code, tvb(off, 2)); off = off + 2
+        body:add(f.ds_power, tvb(off, 4)); off = off + 4
+        body:add(f.ds_wavelength, tvb(off, 4)); off = off + 4
+        local sp = body:add(tvb(off, 12), "照射点(相对被照实体) (Spot wrt Designated Entity)")
+        sp:add(f.ds_spot_x, tvb(off, 4)); sp:add(f.ds_spot_y, tvb(off + 4, 4)); sp:add(f.ds_spot_z, tvb(off + 8, 4))
+        off = off + 12
+        local l = body:add(tvb(off, 24), "照射点位置 (Designator Spot Location)")
+        l:add(f.ds_loc_x, tvb(off, 8)); l:add(f.ds_loc_y, tvb(off + 8, 8)); l:add(f.ds_loc_z, tvb(off + 16, 8))
+        off = off + 24
+        body:add(C.proto.fields.dr_algorithm, tvb(off, 1)); off = off + 1
+        body:add(f.vr_pad, tvb(off, 3)); off = off + 3
+        local a = body:add(tvb(off, 12), "线加速度 (Entity Linear Acceleration)")
+        a:add(C.proto.fields.acc_x, tvb(off, 4))
+        a:add(C.proto.fields.acc_y, tvb(off + 4, 4))
+        a:add(C.proto.fields.acc_z, tvb(off + 8, 4))
+        off = off + 12
+        return off
+    end
+    C.register(24, dissect_designator, "照射器 Designator")
+end

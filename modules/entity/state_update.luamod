@@ -1,0 +1,45 @@
+-- entity/state_update.luamod — 实体状态更新 PDU(PDU 67,实体信息族)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 布局:EntityID(6) pad(1) numVP(1) Velocity(12) Location(24) Orientation(12)
+-- Appearance(4, 跨包上下文决定位表;无上下文裸值) VP循环
+
+return function(C)
+    local f = C.proto.fields
+
+    f.num_vr = ProtoField.uint8("displus.num_variable_records",
+        "变参数数量 (Number of Variable Records)", base.DEC)
+
+    local function dissect_es_update(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 16, body) then return off end
+        local site, app, entity
+        off, site, app, entity = C.add_entity_id(body, tvb, off, "实体ID (Entity ID)")
+        body:add(f.pad8, tvb(off, 1)); off = off + 1
+        local nvp = tvb(off, 1):uint()
+        body:add(f.num_vr, tvb(off, 1)); off = off + 1
+
+        local v = body:add(tvb(off, 12), "线速度 (Entity Linear Velocity)")
+        v:add(f.vel_x, tvb(off, 4)); v:add(f.vel_y, tvb(off + 4, 4)); v:add(f.vel_z, tvb(off + 8, 4))
+        off = off + 12
+        local l = body:add(tvb(off, 24), "位置 (Entity Location)")
+        l:add(f.loc_x, tvb(off, 8)); l:add(f.loc_y, tvb(off + 8, 8)); l:add(f.loc_z, tvb(off + 16, 8))
+        off = off + 24
+        local o = body:add(tvb(off, 12), "姿态 (Entity Orientation)")
+        o:add(f.ori_psi, tvb(off, 4)); o:add(f.ori_theta, tvb(off + 4, 4)); o:add(f.ori_phi, tvb(off + 8, 4))
+        off = off + 12
+
+        -- 借该实体在此帧号之前最近的 EntityState 上下文选位表;没有则裸值
+        local ctx = C.lookup_ctx(site, app, entity, pinfo.number)
+        if ctx then
+            off = C.add_appearance(body, tvb, off, ctx.kind, ctx.domain)
+        else
+            local app_item = body:add(f.appearance, tvb(off, 4))
+            app_item:append_text("  [提示] 尚未收到该实体的 Entity State PDU,无法按域解码位含义")
+            off = off + 4
+        end
+
+        off = C.add_variable_params(body, tvb, off, nvp)
+        return off
+    end
+    C.register(67, dissect_es_update, "实体状态更新 Entity State Update")
+end

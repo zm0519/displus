@@ -1,0 +1,43 @@
+-- synthenv/process.luamod — 环境过程 PDU(PDU 41,合成环境族)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 布局:EnvironmentalProcessID(6) 环境类型(8=kind/domain/class/cat/sub/spec/pad)
+--       模型类型(1) 状态(1=末条/激活位) 记录数(2) 序号(2);body 总 20 字节
+
+return function(C)
+    local f           = C.proto.fields
+
+    f.env_kind        = ProtoField.uint8("displus.env_kind", "种类 (Kind)", base.DEC)
+    f.env_dom         = ProtoField.uint8("displus.env_domain", "域 (Domain)", base.DEC)
+    f.env_class       = ProtoField.uint8("displus.env_class", "类别 (Class)", base.DEC)
+    f.env_cat         = ProtoField.uint8("displus.env_category", "组 (Category)", base.DEC)
+    f.env_sub         = ProtoField.uint8("displus.env_subcategory", "子类 (Subcategory)", base.DEC)
+    f.env_spec        = ProtoField.uint8("displus.env_specific", "细分 (Specific)", base.DEC)
+    f.env_extra       = ProtoField.uint8("displus.env_extra", "附加 (Extra)", base.DEC)
+    f.env_model_type  = ProtoField.uint8("displus.env_model_type", "模型类型 (Model Type)", base.DEC)
+    f.env_status_last = ProtoField.bool("displus.env_status_last", "末条记录 (Last Record)", 8, { "是", "否" }, 0x01)
+    f.env_status_on   = ProtoField.bool("displus.env_status_on", "激活 (Active)", 8, nil, 0x02)
+    f.env_num_records = ProtoField.uint16("displus.env_number_of_records",
+        "环境记录数 (Number of Environment Records)", base.DEC)
+    f.env_seq         = ProtoField.uint16("displus.env_sequence_number", "序列号 (Sequence Number)", base.DEC)
+
+    local function dissect_environmental(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 20, body) then return off end
+        off = C.add_entity_id(body, tvb, off, "环境过程ID (Environmental Process ID)")
+        local et = body:add(tvb(off, 8), "环境类型 (Environment Type)")
+        et:add(f.env_kind, tvb(off, 1)); et:add(f.env_dom, tvb(off + 1, 1))
+        et:add(f.env_class, tvb(off + 2, 1)); et:add(f.env_cat, tvb(off + 3, 1))
+        et:add(f.env_sub, tvb(off + 4, 1)); et:add(f.env_spec, tvb(off + 5, 1))
+        et:add(f.env_extra, tvb(off + 6, 1))
+        off = off + 8
+        body:add(f.env_model_type, tvb(off, 1)); off = off + 1
+        local st = body:add(tvb(off, 1), "环境状态 (Environment Status)")
+        st:add(f.env_status_last, tvb(off, 1))
+        st:add(f.env_status_on, tvb(off, 1))
+        off = off + 1
+        body:add(f.env_num_records, tvb(off, 2)); off = off + 2
+        body:add(f.env_seq, tvb(off, 2)); off = off + 2
+        return off
+    end
+    C.register(41, dissect_environmental, "环境过程 Environmental Process")
+end

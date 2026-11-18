@@ -1,0 +1,191 @@
+-- mgmt/isgroupof.luamod — IsGroupOf PDU(PDU 34,实体管理族)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 布局:GroupID(6) 类别(1)[UID 213] num(1) pad32(4)
+--       参照点纬度(8,f64) 经度(8,f64)
+--       + num×组实体描述 GED 记录(长度依类别,REF-010 v37 [UID 215-223])
+-- GED 记录各字段位宽见各解析分支;位置为相对组参照点的 16 位米偏移,
+-- 朝向/炮塔/头部角度为 25 毫弧增量 i8,空中类速度为 0.1m/s i16。
+
+return function(C)
+    local f            = C.proto.fields
+
+    f.igo_category     = ProtoField.uint8("displus.grouped_entity_category",
+        "编组实体类别 (Grouped Entity Category)", base.DEC, C.ENUMS.GROUPED_ENTITY_CATEGORY)
+    f.igo_num          = ProtoField.uint8("displus.number_of_grouped_entities",
+        "编组实体数 (Number of Grouped Entities)", base.DEC)
+    f.igo_lat          = ProtoField.double("displus.group_latitude", "纬度 (Latitude)")
+    f.igo_lon          = ProtoField.double("displus.group_longitude", "经度 (Longitude)")
+
+    ---------------------------------------------------------------- GED 记录字段
+    f.ged_id           = ProtoField.uint16("displus.ged_entity_id", "实体编号 (Entity Number)", base.DEC)
+    f.ged_loc_x        = ProtoField.int16("displus.ged_offset_x", "x偏移 (x-Offset) m", base.DEC)
+    f.ged_loc_y        = ProtoField.int16("displus.ged_offset_y", "y偏移 (y-Offset) m", base.DEC)
+    f.ged_loc_z        = ProtoField.int16("displus.ged_offset_z", "z偏移 (z-Offset) m", base.DEC)
+    f.ged_appearance   = ProtoField.uint32("displus.ged_appearance", "实体外观 (Entity Appearance)", base.HEX)
+    f.ged_psi          = ProtoField.int8("displus.ged_orientation_psi", "偏航 psi (25毫弧)", base.DEC)
+    f.ged_theta        = ProtoField.int8("displus.ged_orientation_theta", "俯仰 theta (25毫弧)", base.DEC)
+    f.ged_phi          = ProtoField.int8("displus.ged_orientation_phi", "横滚 phi (25毫弧)", base.DEC)
+    f.ged_speed        = ProtoField.int8("displus.ged_speed", "速度 (Speed) m/s", base.DEC)
+    f.ged_speed_air    = ProtoField.int16("displus.ged_speed_air", "速度 (Speed) 0.1m/s", base.DEC)
+    -- 战车:炮塔/火炮
+    f.ged_turret_az    = ProtoField.int8("displus.ged_turret_azimuth", "炮塔方位角 (25毫弧)", base.DEC)
+    f.ged_gun_el       = ProtoField.int8("displus.ged_gun_elevation", "火炮俯仰角 (25毫弧)", base.DEC)
+    f.ged_turret_rate  = ProtoField.int8("displus.ged_turret_slew_rate", "炮塔转速 (25毫弧/s)", base.DEC)
+    f.ged_gun_rate     = ProtoField.int8("displus.ged_gun_elevation_rate", "火炮俯仰速率 (25毫弧/s)", base.DEC)
+    -- 士兵:头部
+    f.ged_head_az      = ProtoField.int8("displus.ged_head_azimuth", "头部方位角 (25毫弧)", base.DEC)
+    f.ged_head_el      = ProtoField.int8("displus.ged_head_elevation", "头部俯仰角 (25毫弧)", base.DEC)
+    f.ged_head_rate    = ProtoField.int8("displus.ged_head_scan_rate", "头部扫描速率 (25毫弧/s)", base.DEC)
+    f.ged_head_el_rate = ProtoField.int8("displus.ged_head_elevation_rate", "头部俯仰速率 (25毫弧/s)", base.DEC)
+    -- 空中:运动方向
+    f.ged_mdir_h       = ProtoField.int8("displus.ged_movement_dir_horizontal", "运动方向-水平 (25毫弧)", base.DEC)
+    f.ged_mdir_v       = ProtoField.int8("displus.ged_movement_dir_vertical", "运动方向-垂直 (25毫弧)", base.DEC)
+    -- 后勤状态
+    f.ged_fuel         = ProtoField.uint8("displus.ged_fuel_status", "油料状态 (Fuel Status)", base.DEC)
+    f.ged_maint        = ProtoField.uint8("displus.ged_maintenance_status", "地面维护状态 (Ground Maintenance Status)",
+        base.DEC)
+    f.ged_ammo1        = ProtoField.uint8("displus.ged_primary_ammunition", "主弹药 (Primary Ammunition)", base.DEC)
+    f.ged_ammo2        = ProtoField.uint8("displus.ged_secondary_ammunition", "副弹药 (Secondary Ammunition)", base.DEC)
+    f.ged_water        = ProtoField.uint8("displus.ged_water_status", "给水状态 (Water Status)", base.DEC)
+    f.ged_rest         = ProtoField.uint8("displus.ged_rest_status", "休整状态 (Rest Status)", base.DEC, C.ENUMS.REST_STATUS)
+    f.ged_supp_fuel    = ProtoField.uint8("displus.ged_supplemental_fuel", "附加油料状态 (Supplemental Fuel)", base.DEC)
+    f.ged_air_maint    = ProtoField.uint8("displus.ged_air_maintenance", "航空维护状态 (Air Maintenance)", base.DEC)
+    -- 公共段:实体编号2 + 位置6 + 外观4 + 朝向3 = 15 字节
+    local function ged_common(rec, tvb, off)
+        rec:add(f.ged_id, tvb(off, 2))
+        local loc = rec:add(tvb(off + 2, 6), "实体位置-相对参照点 (Entity Location)")
+        loc:add(f.ged_loc_x, tvb(off + 2, 2))
+        loc:add(f.ged_loc_y, tvb(off + 4, 2))
+        loc:add(f.ged_loc_z, tvb(off + 6, 2))
+        rec:add(f.ged_appearance, tvb(off + 8, 4))
+        local o = rec:add(tvb(off + 12, 3), "实体朝向 (Entity Orientation)")
+        o:add(f.ged_psi, tvb(off + 12, 1))
+        o:add(f.ged_theta, tvb(off + 13, 1))
+        o:add(f.ged_phi, tvb(off + 14, 1))
+        return off + 15
+    end
+
+    -- 战车武器段(炮塔/火炮 4 字节)
+    local function ged_turret(rec, tvb, off)
+        rec:add(f.ged_turret_az, tvb(off, 1))
+        rec:add(f.ged_gun_el, tvb(off + 1, 1))
+        rec:add(f.ged_turret_rate, tvb(off + 2, 1))
+        rec:add(f.ged_gun_rate, tvb(off + 3, 1))
+        return off + 4
+    end
+    -- 士兵头部段(4 字节)
+    local function ged_head(rec, tvb, off)
+        rec:add(f.ged_head_az, tvb(off, 1))
+        rec:add(f.ged_head_el, tvb(off + 1, 1))
+        rec:add(f.ged_head_rate, tvb(off + 2, 1))
+        rec:add(f.ged_head_el_rate, tvb(off + 3, 1))
+        return off + 4
+    end
+    -- 空中运动段(油料1 + 方向2 + 速度2)
+    local function ged_air_motion(rec, tvb, off)
+        rec:add(f.ged_fuel, tvb(off, 1))
+        rec:add(f.ged_mdir_h, tvb(off + 1, 1))
+        rec:add(f.ged_mdir_v, tvb(off + 2, 1))
+        rec:add(f.ged_speed_air, tvb(off + 3, 2))
+        return off + 5
+    end
+    -- 地面后勤段(油料/维护/弹药)
+    local function ged_ground_log(rec, tvb, off)
+        rec:add(f.ged_fuel, tvb(off, 1))
+        rec:add(f.ged_maint, tvb(off + 1, 1))
+        rec:add(f.ged_ammo1, tvb(off + 2, 1))
+        rec:add(f.ged_ammo2, tvb(off + 3, 1))
+        return off + 4
+    end
+    -- 航空后勤段(附加油料/航空维护/弹药)
+    local function ged_air_log(rec, tvb, off)
+        rec:add(f.ged_supp_fuel, tvb(off, 1))
+        rec:add(f.ged_air_maint, tvb(off + 1, 1))
+        rec:add(f.ged_ammo1, tvb(off + 2, 1))
+        rec:add(f.ged_ammo2, tvb(off + 3, 1))
+        return off + 4
+    end
+    -- 士兵后勤段(给水/休整/弹药)
+    local function ged_soldier_log(rec, tvb, off)
+        rec:add(f.ged_water, tvb(off, 1))
+        rec:add(f.ged_rest, tvb(off + 1, 1))
+        rec:add(f.ged_ammo1, tvb(off + 2, 1))
+        rec:add(f.ged_ammo2, tvb(off + 3, 1))
+        return off + 4
+    end
+
+    -- category -> 公共段之后追加的字段解析([UID 213]/[UID 215-223])
+    local function ged_extra(cat, rec, tvb, off)
+        if cat == 1 then -- 基本地面战车:速度 + 炮塔组
+            rec:add(f.ged_speed, tvb(off, 1)); off = off + 1
+            return ged_turret(rec, tvb, off)
+        elseif cat == 2 then -- 增强地面战车:基本 + 地面后勤
+            rec:add(f.ged_speed, tvb(off, 1)); off = off + 1
+            off = ged_turret(rec, tvb, off)
+            return ged_ground_log(rec, tvb, off)
+        elseif cat == 3 then -- 基本地面士兵:速度 + 头部组
+            rec:add(f.ged_speed, tvb(off, 1)); off = off + 1
+            return ged_head(rec, tvb, off)
+        elseif cat == 4 then -- 增强地面士兵:基本 + 士兵后勤
+            rec:add(f.ged_speed, tvb(off, 1)); off = off + 1
+            off = ged_head(rec, tvb, off)
+            return ged_soldier_log(rec, tvb, off)
+        elseif cat == 5 then -- 基本旋翼机:空中运动 + 炮塔组
+            off = ged_air_motion(rec, tvb, off)
+            return ged_turret(rec, tvb, off)
+        elseif cat == 6 then -- 增强旋翼机:基本 + 航空后勤
+            off = ged_air_motion(rec, tvb, off)
+            off = ged_turret(rec, tvb, off)
+            return ged_air_log(rec, tvb, off)
+        elseif cat == 7 then -- 基本固定翼机:空中运动
+            return ged_air_motion(rec, tvb, off)
+        elseif cat == 8 then -- 增强固定翼机:基本 + 航空后勤
+            off = ged_air_motion(rec, tvb, off)
+            return ged_air_log(rec, tvb, off)
+        elseif cat == 9 then -- 地面后勤车辆:速度
+            rec:add(f.ged_speed, tvb(off, 1)); off = off + 1
+            return off
+        end
+        return off -- 未知类别:仅公共段
+    end
+
+    -- GED 记录总长(公共 15 字节 + 追加),用于树节点范围
+    local GED_LEN = {
+        [1] = 20,
+        [2] = 24,
+        [3] = 20,
+        [4] = 24,
+        [5] = 24,
+        [6] = 28,
+        [7] = 20,
+        [8] = 24,
+        [9] = 16,
+    }
+
+    local function dissect_is_group_of(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 28, body) then return off end
+        off = C.add_entity_id(body, tvb, off, "编组实体ID (Group Entity ID)")
+        local cat = tvb(off, 1):uint()
+        body:add(f.igo_category, tvb(off, 1)); off = off + 1
+        local n = tvb(off, 1):uint()
+        body:add(f.igo_num, tvb(off, 1)); off = off + 1
+        body:add(f.pad32, tvb(off, 4)); off = off + 4
+        body:add(f.igo_lat, tvb(off, 8)); off = off + 8
+        body:add(f.igo_lon, tvb(off, 8)); off = off + 8
+        if n > C.MAX_RECORDS then
+            body:add(tvb(), string.format("[护栏] 编组实体数 %d 超上限,仅解析前 %d 条", n, C.MAX_RECORDS))
+            n = C.MAX_RECORDS
+        end
+        for i = 1, n do
+            local rlen = GED_LEN[cat] or 15
+            if not C.need(tvb, off, rlen, body) then return off end
+            local rec = body:add(tvb(off, rlen),
+                string.format("组实体描述 (Grouped Entity Description) [%d]", i - 1))
+            off = ged_common(rec, tvb, off)
+            off = ged_extra(cat, rec, tvb, off)
+        end
+        return off
+    end
+    C.register(34, dissect_is_group_of, "IsGroupOf")
+end

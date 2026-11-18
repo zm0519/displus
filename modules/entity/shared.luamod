@@ -1,0 +1,439 @@
+-- entity/shared.luamod — 实体信息族族内共享(无 PDU,仅字段与辅助函数)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 内容:速度/位置/姿态/外观/DR 字段、质量字段,Appearance 位表与渲染。
+
+return function(C)
+    local f          = C.proto.fields
+
+    ---------------------------------------------------------------- 族内共享字段
+    f.vel_x          = ProtoField.float("displus.entity_linear_velocity_x", "X (Velocity)")
+    f.vel_y          = ProtoField.float("displus.entity_linear_velocity_y", "Y (Velocity)")
+    f.vel_z          = ProtoField.float("displus.entity_linear_velocity_z", "Z (Velocity)")
+    f.loc_x          = ProtoField.double("displus.entity_location_x", "X (Location)")
+    f.loc_y          = ProtoField.double("displus.entity_location_y", "Y (Location)")
+    f.loc_z          = ProtoField.double("displus.entity_location_z", "Z (Location)")
+    f.ori_psi        = ProtoField.float("displus.entity_orientation_psi", "偏航 psi")
+    f.ori_theta      = ProtoField.float("displus.entity_orientation_theta", "俯仰 theta")
+    f.ori_phi        = ProtoField.float("displus.entity_orientation_phi", "横滚 phi")
+    f.appearance     = ProtoField.uint32("displus.entity_appearance", "实体外观 (Appearance)", base.HEX)
+    -- 航位推算参数 [UID 44]
+    local V_DR       = {
+        [0] = "其他 Other",
+        [1] = "静态——非运动实体 Static - Non-moving Entity",
+        [2] = "DRM(FPW)——匀速/低加速度直线运动实体",
+        [3] = "DRM(RPW)——匀速/低加速度直线运动实体,含外推取向",
+        [4] = "DRM(RVW)——高速或机动实体,含外推取向",
+        [5] = "DRM(FVW)——高速或机动实体",
+        [6] = "DRM(FPB)——同 FPW,但用机体坐标",
+        [7] = "DRM(RPB)——同 RPW,但用机体坐标",
+        [8] = "DRM(RVB)——同 RVW,但用机体坐标",
+        [9] = "DRM(FVB)——同 FVW,但用机体坐标",
+        [10] = "抛物线/圆弧组合(CPC) Combined Parabolic/Circular (CPC)",
+    }
+    f.dr_algorithm   = ProtoField.uint8("displus.dr_algorithm",
+        "算法 (Dead Reckoning Algorithm)", base.DEC, V_DR)
+    f.dr_other       = ProtoField.bytes("displus.dr_other_parameters",
+        "其他参数 (Other Parameters)")
+    f.acc_x          = ProtoField.float("displus.entity_linear_acceleration_x", "X (Acceleration)")
+    f.acc_y          = ProtoField.float("displus.entity_linear_acceleration_y", "Y (Acceleration)")
+    f.acc_z          = ProtoField.float("displus.entity_linear_acceleration_z", "Z (Acceleration)")
+    f.av_x           = ProtoField.float("displus.entity_angular_velocity_x", "X (Angular Velocity)")
+    f.av_y           = ProtoField.float("displus.entity_angular_velocity_y", "Y (Angular Velocity)")
+    f.av_z           = ProtoField.float("displus.entity_angular_velocity_z", "Z (Angular Velocity)")
+    -- 质量(碰撞 4 / 碰撞-弹性 66 共用)
+    f.collision_mass = ProtoField.float("displus.collision_mass", "质量 (Mass) kg")
+
+    local ONOFF      = { "开 On", "关 Off" }
+    local function bf(abbrev, name, mask, tf)
+        local fld = ProtoField.bool(abbrev, name, 32, tf or ONOFF, mask)
+        f[abbrev] = fld
+        return fld
+    end
+    local function ef(abbrev, name, mask, vals)
+        local fld = ProtoField.uint32(abbrev, name, base.DEC, vals, mask)
+        f[abbrev] = fld
+        return fld
+    end
+
+    local V_DAMAGE       = {
+        [0] = "无损伤 No Damage",
+        [1] = "轻度损伤 Slight Damage",
+        [2] = "中度损伤 Moderate Damage",
+        [3] = "被毁 Destroyed"
+    } -- [UID 379]
+    local V_TRAIL        = {
+        [0] = "无 None",
+        [1] = "小 Small",
+        [2] = "中 Medium",
+        [3] = "大 Large"
+    } -- [UID 381]
+    local V_CAMO         = {
+        [0] = "荒漠迷彩 Desert Camouflage",
+        [1] = "冬季迷彩 Winter Camouflage",
+        [2] = "森林迷彩 Forest Camouflage",
+        [3] = "其他 Other"
+    } -- [UID 384]
+    local V_STATE        = { [0] = "活动 Active", [1] = "停用 Deactivated" } -- [UID 386]
+    local V_SUBHATCH     = {
+        [0] = "不适用 Not Applicable",
+        [1] = "舱口关闭 Hatch Is Closed",
+        [4] = "舱口打开 Hatch Is Open"
+    } -- [UID 388]
+    local V_DENSITY      = {
+        [0] = "清澈 Clear",
+        [1] = "薄雾 Hazy",
+        [2] = "较浓 Dense",
+        [3] = "浓 Very Dense",
+        [4] = "不透明 Opaque"
+    } -- [UID 395]
+    local V_DEPLOYED     = {
+        [0] = "不适用 Not Applicable",
+        [1] = "收起 Stowed",
+        [2] = "已展开 Deployed",
+        [3] = "已展开且工作 Deployed and Active"
+    } -- [UID 399]
+    local V_PARACHUTE    = {
+        [0] = "无 None",
+        [1] = "已张开 Deployed",
+        [2] = "已瘪塌 Collapsed",
+        [3] = "故障/飘带状 Malfunction/Streamer"
+    } -- [UID 401]
+    local V_FLARE_COLOR  = {
+        [0] = "白 White",
+        [1] = "红 Red",
+        [2] = "绿 Green",
+        [3] = "红外(IR) IR"
+    } -- [UID 402]
+    local V_FLARE_STATUS = {
+        [0] = "未点燃 Not Ignited",
+        [1] = "燃烧中 Burning",
+        [2] = "已燃尽 Burned Out"
+    } -- [UID 403]
+    local V_CHAFF        = { [0] = "无 None", [1] = "已投放 Deployed", [2] = "故障 Malfunction" } -- [UID 404]
+    local V_COVER        = {
+        [0] = "关闭 Closed",
+        [1] = "开启中 Opening",
+        [2] = "护盖/罩布吹掉/脱落 Blown/Detached",
+        [3] = "打开/附着 Open/Attached"
+    } -- [UID 426]
+    local V_DMG_AREA     = {
+        [0] = "损伤区1/正面",
+        [1] = "损伤区2/右面",
+        [2] = "损伤区3/后面",
+        [3] = "损伤区4/左面",
+        [4] = "损伤区5/右前角",
+        [5] = "损伤区6/右后角",
+        [6] = "损伤区7/左后角",
+        [7] = "损伤区8/左前角"
+    } -- [UID 889]
+
+    ---------------------------------------------------------------- 位表
+    -- 陆地平台(kind=1,domain=1)[UID 31]
+    local LAND           = {
+        bf("displus.app.land.paint", "涂装方案 (Paint Scheme)", 0x00000001, { "迷彩", "单色" }),
+        bf("displus.app.land.mobility", "机动性毁伤 (Mobility)", 0x00000002, { "机动性毁伤", "无机动性毁伤" }),
+        bf("displus.app.land.fire_power", "火力毁伤 (Fire Power)", 0x00000004, { "火力毁伤", "无火力毁伤" }),
+        ef("displus.app.land.damage", "损伤 (Damage)", 0x00000018, V_DAMAGE),
+        ef("displus.app.land.smoke", "冒烟 (Smoke Entity)", 0x00000060,
+            { [0] = "不冒烟", [1] = "实体升起烟柱", [2] = "发动机排烟", [3] = "烟柱+发动机排烟" }),
+        ef("displus.app.land.trailing", "拖曳尘云 (Trailing Effects)", 0x00000180, V_TRAIL),
+        ef("displus.app.land.hatch", "主舱盖 (Hatch)", 0x00000E00,
+            {
+                [0] = "不适用",
+                [1] = "关闭",
+                [2] = "弹开",
+                [3] = "弹开且可见人员",
+                [4] = "打开",
+                [5] = "打开且可见人员",
+                [6] = "未用"
+            }),
+        bf("displus.app.land.head_lights", "前灯 (Head Lights)", 0x00001000),
+        bf("displus.app.land.tail_lights", "尾灯 (Tail Lights)", 0x00002000),
+        bf("displus.app.land.brake_lights", "刹车灯 (Brake Lights)", 0x00004000),
+        ef("displus.app.land.flaming", "明火 (Flaming)", 0x00008000, { [0] = "无", [1] = "有明火" }),
+        ef("displus.app.land.launcher", "发射架 (Launcher)", 0x00010000, { [0] = "未升起", [1] = "升起" }),
+        ef("displus.app.land.camo", "迷彩类型 (Camouflage Type)", 0x00060000, V_CAMO),
+        ef("displus.app.land.concealed", "隐蔽阵地 (Concealed)", 0x00080000, { [0] = "未隐蔽", [1] = "预备隐蔽阵地" }),
+        ef("displus.app.land.frozen", "冻结 (Frozen)", 0x00200000, { [0] = "未冻结", [1] = "冻结" }),
+        ef("displus.app.land.power", "动力装置 (Power Plant)", 0x00400000, { [0] = "关", [1] = "开" }),
+        ef("displus.app.land.state", "状态 (State)", 0x00800000, V_STATE),
+        ef("displus.app.land.tent", "帐篷 (Tent)", 0x01000000, { [0] = "未展开", [1] = "展开" }),
+        bf("displus.app.land.ramp", "跳板 (Ramp)", 0x02000000, { "放下", "收起" }),
+        bf("displus.app.land.blackout", "遮光灯 (Blackout Lights)", 0x04000000),
+        bf("displus.app.land.blackout_brk", "遮光刹车灯 (Blackout Brake)", 0x08000000),
+        bf("displus.app.land.spot", "探照灯 (Spot Lights)", 0x10000000),
+        bf("displus.app.land.interior", "内部照明 (Interior Lights)", 0x20000000),
+        ef("displus.app.land.surrender", "投降状态 (Surrender State)", 0x40000000, { [0] = "未投降", [1] = "投降" }),
+        ef("displus.app.land.masked", "掩蔽/披挂 (Masked Cloaked)", 0x80000000, { [0] = "否", [1] = "是" }),
+    }
+
+    -- 空中平台(kind=1,domain=2)[UID 32]
+    local AIR            = {
+        bf("displus.app.air.paint", "涂装方案 (Paint Scheme)", 0x00000001, { "迷彩", "单色" }),
+        bf("displus.app.air.prop_kill", "推进毁伤 (Propulsion Killed)", 0x00000002, { "推进毁伤", "无推进毁伤" }),
+        bf("displus.app.air.nvg", "夜视照明模式 (NVG Mode)", 0x00000004, { "明光照明", "夜视(微光)照明" }),
+        ef("displus.app.air.damage", "损伤 (Damage)", 0x00000018, V_DAMAGE),
+        bf("displus.app.air.smoke", "冒烟 (Smoke Emanating)", 0x00000020),
+        bf("displus.app.air.engine_smoke", "发动机排烟 (Engine Smoke)", 0x00000040),
+        ef("displus.app.air.trailing", "拖曳效应 (Trailing Effects)", 0x00000180, V_TRAIL),
+        ef("displus.app.air.canopy", "座舱盖/舱门 (Canopy/Troop Door)", 0x00000E00,
+            {
+                [0] = "不适用",
+                [1] = "单座舱/单舱门关闭",
+                [2] = "前后舱盖/左右舱门关闭",
+                [3] = "前舱盖/左舱门打开",
+                [4] = "单座舱/单舱门打开",
+                [5] = "后舱盖/右舱门打开",
+                [6] = "前后舱盖/左右舱门打开"
+            }),
+        bf("displus.app.air.landing_lights", "着陆灯 (Landing Lights)", 0x00001000),
+        bf("displus.app.air.nav_lights", "导航灯 (Navigation Lights)", 0x00002000),
+        bf("displus.app.air.anti_coll", "防撞灯 (Anti Collision Lights)", 0x00004000),
+        bf("displus.app.air.flaming", "明火 (Flaming)", 0x00008000),
+        bf("displus.app.air.afterburner", "加力燃烧 (Afterburner)", 0x00010000),
+        bf("displus.app.air.lower_anti", "下防撞灯 (Lower Anti Collision)", 0x00020000),
+        bf("displus.app.air.upper_anti", "上防撞灯 (Upper Anti Collision)", 0x00040000),
+        bf("displus.app.air.day_night", "防撞灯昼/夜 (Day/Night)", 0x00080000),
+        bf("displus.app.air.blinking", "闪烁 (Blinking)", 0x00100000),
+        bf("displus.app.air.frozen", "冻结 (Frozen)", 0x00200000),
+        bf("displus.app.air.power", "动力装置 (Power Plant On)", 0x00400000),
+        bf("displus.app.air.state", "状态 (State)", 0x00800000),
+        bf("displus.app.air.formation", "编队灯 (Formation Lights)", 0x01000000),
+        bf("displus.app.air.gear", "起落架放下 (Landing Gear)", 0x02000000),
+        bf("displus.app.air.cargo_doors", "货舱门打开 (Cargo Doors)", 0x04000000),
+        bf("displus.app.air.nav_brightness", "导航灯亮度 (Nav Brightness)", 0x08000000),
+        bf("displus.app.air.spot1", "1号探照灯 (Spot/Search Light 1)", 0x10000000),
+        bf("displus.app.air.interior", "内部照明 (Interior Lights)", 0x20000000),
+        bf("displus.app.air.reverse", "反推 (Reverse Thrust)", 0x40000000),
+        bf("displus.app.air.wow", "轮载接地 (Weight On Wheels)", 0x80000000),
+    }
+
+    -- 生命体(kind=3)[UID 37]
+    local LIFE           = {
+        bf("displus.app.life.paint", "涂装方案 (Paint Scheme)", 0x00000001, { "迷彩", "单色" }),
+        ef("displus.app.life.health", "健康 (Health)", 0x00000018,
+            { [0] = "无伤", [1] = "轻伤", [2] = "重伤", [3] = "致命伤" }),
+        ef("displus.app.life.compliance", "服从状态 (Compliance)", 0x000001E0,
+            {
+                [0] = "未指定",
+                [1] = "被拘留",
+                [2] = "投降",
+                [3] = "挥拳",
+                [4] = "辱骂1级",
+                [5] = "辱骂2级",
+                [6] = "辱骂3级",
+                [7] = "消极抵抗1级",
+                [8] = "消极抵抗2级",
+                [9] = "消极抵抗3级",
+                [10] = "使用非致命武器1",
+                [11] = "使用非致命武器2"
+            }),
+        bf("displus.app.life.flash_lights", "闪光灯 (Flash Lights)", 0x00001000),
+        ef("displus.app.life.posture", "姿态 (Life Form Posture)", 0x000F0000,
+            {
+                [0] = "未指定",
+                [1] = "直立静止",
+                [2] = "直立行走",
+                [3] = "直立奔跑",
+                [4] = "跪姿",
+                [5] = "卧姿",
+                [6] = "匍匐",
+                [7] = "游泳",
+                [8] = "跳伞",
+                [9] = "跳跃",
+                [10] = "坐姿",
+                [11] = "蹲姿"
+            }),
+        ef("displus.app.life.frozen", "冻结 (Frozen)", 0x00200000, { [0] = "未冻结", [1] = "冻结" }),
+        ef("displus.app.life.state", "状态 (State)", 0x00800000, V_STATE),
+        ef("displus.app.life.weapon1", "武器1 (Weapon 1)", 0x03000000,
+            { [0] = "无主武器", [1] = "收起", [2] = "展开", [3] = "射击位置" }),
+        ef("displus.app.life.weapon2", "武器2 (Weapon 2)", 0x0C000000,
+            { [0] = "无主武器", [1] = "收起", [2] = "展开", [3] = "射击位置" }),
+        ef("displus.app.life.camo", "迷彩类型 (Camouflage Type)", 0x30000000, V_CAMO),
+        ef("displus.app.life.concealed_st", "静止隐蔽 (Concealed Stationary)", 0x40000000,
+            { [0] = "未隐蔽", [1] = "预备隐蔽阵地" }),
+        ef("displus.app.life.concealed_mv", "运动隐蔽 (Concealed Movement)", 0x80000000,
+            { [0] = "开阔运动", [1] = "掩蔽间冲刺" }),
+    }
+
+    -- 水面平台(kind=1,domain=3)[UID 33]
+    local SURFACE        = {
+        bf("displus.app.sfc.paint", "涂装方案 (Paint Scheme)", 0x00000001, { "迷彩", "单色" }),
+        bf("displus.app.sfc.mobility", "机动性毁伤 (Mobility)", 0x00000002, { "机动性毁伤", "无机动性毁伤" }),
+        ef("displus.app.sfc.damage", "损伤 (Damage)", 0x00000018, V_DAMAGE),
+        bf("displus.app.sfc.smoke", "冒烟 (Smoke)", 0x00000020),
+        bf("displus.app.sfc.engine_smoke", "发动机排烟 (Engine Smoke)", 0x00000040),
+        ef("displus.app.sfc.wake", "尾流大小 (Wake Size)", 0x00000180, V_TRAIL),
+        bf("displus.app.sfc.nav_lights", "航行灯 (Navigation Lights)", 0x00001000),
+        bf("displus.app.sfc.flaming", "明火 (Flaming)", 0x00008000),
+        bf("displus.app.sfc.gangplank", "舷梯放下 (Gangplank)", 0x00010000),
+        bf("displus.app.sfc.fence", "栏杆竖起 (Safety Fence)", 0x00020000),
+        bf("displus.app.sfc.flag", "旗已升起 (Flag Raised)", 0x00040000),
+        bf("displus.app.sfc.frozen", "冻结 (Frozen)", 0x00200000),
+        bf("displus.app.sfc.power", "电站 (Power Plant)", 0x00400000),
+        ef("displus.app.sfc.state", "状态 (State)", 0x00800000, V_STATE),
+        bf("displus.app.sfc.tas", "拖曳阵声呐 (TAS)", 0x08000000),
+        bf("displus.app.sfc.searchlight", "探照灯 (Searchlight)", 0x10000000),
+        bf("displus.app.sfc.interior", "内部灯 (Interior Lights)", 0x20000000),
+    }
+
+    -- 水下平台(kind=1,domain=4)[UID 34]
+    local SUBSURFACE     = {
+        bf("displus.app.sub.paint", "涂装方案 (Paint Scheme)", 0x00000001, { "迷彩", "单色" }),
+        bf("displus.app.sub.mobility", "机动性毁伤 (Mobility)", 0x00000002, { "机动性毁伤", "无机动性毁伤" }),
+        ef("displus.app.sub.damage", "损伤 (Damage)", 0x00000018, V_DAMAGE),
+        bf("displus.app.sub.smoke", "冒烟 (Smoke)", 0x00000020),
+        bf("displus.app.sub.engine_smoke", "发动机排烟 (Engine Smoke)", 0x00000040),
+        ef("displus.app.sub.hatch", "舱口 (Hatch)", 0x00000E00, V_SUBHATCH),
+        bf("displus.app.sub.nav_lights", "航行灯 (Navigation Lights)", 0x00001000),
+        bf("displus.app.sub.flaming", "明火 (Flaming)", 0x00008000),
+        bf("displus.app.sub.periscope", "潜望镜 (Periscope)", 0x00010000),
+        bf("displus.app.sub.snorkel", "通气管 (Snorkel)", 0x00020000),
+        bf("displus.app.sub.radar_mast", "雷达桅 (Radar Mast)", 0x00040000),
+        bf("displus.app.sub.comms_mast", "通信桅 (Communications Mast)", 0x00080000),
+        bf("displus.app.sub.esm_mast", "电子支援桅 (ESM Mast)", 0x00100000),
+        bf("displus.app.sub.frozen", "冻结 (Frozen)", 0x00200000),
+        bf("displus.app.sub.power", "电站 (Power Plant)", 0x00400000),
+        ef("displus.app.sub.state", "状态 (State)", 0x00800000, V_STATE),
+        bf("displus.app.sub.torpedo", "鱼雷发射管 (Torpedo Doors)", 0x02000000),
+        bf("displus.app.sub.missile_hatch", "导弹舱口 (Missile Hatch)", 0x04000000),
+        bf("displus.app.sub.tas", "拖曳阵声呐 (TAS)", 0x08000000),
+    }
+
+    -- 太空平台(kind=1,domain=5)[UID 35]
+    local SPACE          = {
+        bf("displus.app.spc.paint", "涂装方案 (Paint Scheme)", 0x00000001, { "迷彩", "单色" }),
+        bf("displus.app.spc.mobility", "机动性毁伤 (Mobility)", 0x00000002, { "机动性毁伤", "无机动性毁伤" }),
+        ef("displus.app.spc.damage", "损伤 (Damage)", 0x00000018, V_DAMAGE),
+        bf("displus.app.spc.smoke", "冒烟/冒汽 (Smoke/Steam)", 0x00000020),
+        bf("displus.app.spc.engine_smoke", "发动机排烟 (Engine Smoke)", 0x00000040),
+        bf("displus.app.spc.flaming", "明火 (Flaming)", 0x00008000),
+        bf("displus.app.spc.frozen", "冻结 (Frozen)", 0x00200000),
+        bf("displus.app.spc.power", "电站 (Power Plant)", 0x00400000),
+        ef("displus.app.spc.state", "状态 (State)", 0x00800000, V_STATE),
+    }
+
+    -- 弹药(kind=2)[UID 36]
+    local MUNITION       = {
+        ef("displus.app.mun.damage", "损伤 (Damage)", 0x00000018, V_DAMAGE),
+        bf("displus.app.mun.smoke", "冒烟/冒汽 (Smoke/Steam)", 0x00000020),
+        bf("displus.app.mun.engine_smoke", "发动机排烟 (Engine Smoke)", 0x00000040),
+        ef("displus.app.mun.trail", "尾迹大小 (Trailing Effects)", 0x00000180, V_TRAIL),
+        bf("displus.app.mun.flaming", "明火 (Flaming)", 0x00008000),
+        bf("displus.app.mun.launch_flash", "发射闪光 (Launch Flash)", 0x00010000),
+        bf("displus.app.mun.frozen", "冻结 (Frozen)", 0x00200000),
+        bf("displus.app.mun.power", "电站 (Power Plant)", 0x00400000),
+        ef("displus.app.mun.state", "状态 (State)", 0x00800000, V_STATE),
+        ef("displus.app.mun.cover", "护盖/罩布 (Cover/Shroud)", 0x03000000, V_COVER),
+        ef("displus.app.mun.masked", "掩蔽/隐身 (Masked Cloaked)", 0x80000000, { [0] = "否", [1] = "是" }),
+    }
+
+    -- 文化地物(kind=4)[UID 39]
+    local CULTURAL       = {
+        ef("displus.app.cul.damage_area", "损伤区域 (Damage Area)", 0x00000007, V_DMG_AREA),
+        ef("displus.app.cul.damage", "损伤 (Damage)", 0x00000018, V_DAMAGE),
+        bf("displus.app.cul.smoke", "冒烟 (Smoke)", 0x00000020),
+        bf("displus.app.cul.flaming", "明火 (Flaming)", 0x00008000),
+        bf("displus.app.cul.frozen", "冻结 (Frozen)", 0x00200000),
+        bf("displus.app.cul.heat", "内部供暖 (Interior Heat)", 0x00400000),
+        ef("displus.app.cul.state", "状态 (State)", 0x00800000, V_STATE),
+        bf("displus.app.cul.exterior", "外部灯 (Exterior Lights)", 0x10000000),
+        bf("displus.app.cul.interior", "内部灯 (Interior Lights)", 0x20000000),
+        ef("displus.app.cul.masked", "掩蔽/隐身 (Masked Cloaked)", 0x80000000, { [0] = "否", [1] = "是" }),
+    }
+
+    -- 补给(kind=5)[UID 40]
+    local SUPPLY         = {
+        bf("displus.app.spl.paint", "涂装方案 (Paint Scheme)", 0x00000001, { "迷彩", "单色" }),
+        ef("displus.app.spl.damage", "损伤 (Damage)", 0x00000018, V_DAMAGE),
+        ef("displus.app.spl.parachute", "降落伞 (Parachute)", 0x00000180, V_PARACHUTE),
+        bf("displus.app.spl.flaming", "明火 (Flaming)", 0x00008000),
+        bf("displus.app.spl.frozen", "冻结 (Frozen)", 0x00200000),
+        ef("displus.app.spl.state", "状态 (State)", 0x00800000, V_STATE),
+        ef("displus.app.spl.deployed", "展开状态 (Deployed)", 0x03000000, V_DEPLOYED),
+        ef("displus.app.spl.masked", "掩蔽/隐身 (Masked Cloaked)", 0x80000000, { [0] = "否", [1] = "是" }),
+    }
+
+    -- 环境实体(kind=6)[UID 38]
+    local ENVIRONMENTAL  = {
+        ef("displus.app.env.density", "密度 (Density)", 0x000F0000, V_DENSITY),
+        bf("displus.app.env.frozen", "冻结 (Frozen)", 0x00200000),
+        ef("displus.app.env.state", "状态 (State)", 0x00800000, V_STATE),
+        ef("displus.app.env.masked", "掩蔽/隐身 (Masked Cloaked)", 0x80000000, { [0] = "否", [1] = "是" }),
+    }
+
+    -- 无线电(kind=7)[UID 41]
+    local RADIO          = {
+        bf("displus.app.rad.frozen", "冻结 (Frozen)", 0x00200000),
+        ef("displus.app.rad.state", "状态 (State)", 0x00800000, V_STATE),
+    }
+
+    -- 消耗性器材(kind=8)[UID 42]
+    local EXPENDABLE     = {
+        ef("displus.app.exp.damage", "损伤 (Damage)", 0x00000018, V_DAMAGE),
+        bf("displus.app.exp.smoke", "冒烟 (Smoke)", 0x00000020),
+        ef("displus.app.exp.parachute", "降落伞 (Parachute)", 0x00000180, V_PARACHUTE),
+        ef("displus.app.exp.color", "焰/烟颜色 (Flare/Smoke Color)", 0x00000E00, V_FLARE_COLOR),
+        bf("displus.app.exp.flaming", "明火 (Flaming)", 0x00008000),
+        bf("displus.app.exp.launch_flash", "发射闪光 (Launch Flash)", 0x00010000),
+        ef("displus.app.exp.flare_status", "焰/烟状态 (Flare/Smoke Status)", 0x00060000, V_FLARE_STATUS),
+        bf("displus.app.exp.frozen", "冻结 (Frozen)", 0x00200000),
+        bf("displus.app.exp.power", "电站 (Power Plant)", 0x00400000),
+        ef("displus.app.exp.state", "状态 (State)", 0x00800000, V_STATE),
+        ef("displus.app.exp.chaff", "点源箔条 (Spot Chaff)", 0x03000000, V_CHAFF),
+        ef("displus.app.exp.masked", "掩蔽/隐身 (Masked Cloaked)", 0x80000000, { [0] = "否", [1] = "是" }),
+    }
+
+    -- 传感器/发射器(kind=9)[UID 43]
+    local SENSOR         = {
+        bf("displus.app.sen.paint", "涂装方案 (Paint Scheme)", 0x00000001, { "迷彩", "单色" }),
+        bf("displus.app.sen.mobility", "机动性毁伤 (Mobility)", 0x00000002, { "机动性毁伤", "无机动性毁伤" }),
+        bf("displus.app.sen.mission_kill", "任务失效 (Mission Kill)", 0x00000004),
+        ef("displus.app.sen.damage", "损伤 (Damage)", 0x00000018, V_DAMAGE),
+        bf("displus.app.sen.smoke", "冒烟 (Smoke)", 0x00000020),
+        bf("displus.app.sen.engine_smoke", "发动机排烟 (Engine Smoke)", 0x00000040),
+        ef("displus.app.sen.trailing", "拖曳效应 (Trailing Effects)", 0x00000180, V_TRAIL),
+        bf("displus.app.sen.lights", "灯 (Lights)", 0x00001000),
+        bf("displus.app.sen.flaming", "明火 (Flaming)", 0x00008000),
+        bf("displus.app.sen.antenna", "天线升起 (Antenna Raised)", 0x00010000),
+        ef("displus.app.sen.camo", "伪装类型 (Camouflage Type)", 0x00060000, V_CAMO),
+        ef("displus.app.sen.concealed", "掩蔽阵地 (Concealed Position)", 0x00080000, { [0] = "未掩蔽", [1] = "预有准备的掩蔽阵地" }),
+        bf("displus.app.sen.frozen", "冻结 (Frozen)", 0x00200000),
+        bf("displus.app.sen.power", "电站 (Power Plant)", 0x00400000),
+        ef("displus.app.sen.state", "状态 (State)", 0x00800000, V_STATE),
+        bf("displus.app.sen.tent", "帐篷 (Tent)", 0x01000000),
+        bf("displus.app.sen.blackout", "遮光灯 (Blackout Lights)", 0x04000000),
+        bf("displus.app.sen.interior", "内部灯 (Interior Lights)", 0x20000000),
+    }
+
+    -- kind+domain -> 位表(kind=0 其他/未知无表,显示裸 u32)
+    local APPEARANCE_TBL = {
+        ["1:1"] = LAND,
+        ["1:2"] = AIR,
+        ["1:3"] = SURFACE,
+        ["1:4"] = SUBSURFACE,
+        ["1:5"] = SPACE,
+        ["2"] = MUNITION,
+        ["3"] = LIFE,
+        ["4"] = CULTURAL,
+        ["5"] = SUPPLY,
+        ["6"] = ENVIRONMENTAL,
+        ["7"] = RADIO,
+        ["8"] = EXPENDABLE,
+        ["9"] = SENSOR,
+    }
+
+    -- 导出供 67 实体状态更新复用(按跨包上下文选位表)
+    function C.add_appearance(t, tvb, off, kind, domain)
+        local app = t:add(f.appearance, tvb(off, 4))
+        local tbl = kind == 1
+            and APPEARANCE_TBL[string.format("1:%d", domain)]
+            or APPEARANCE_TBL[tostring(kind)]
+        if tbl then
+            for _, fl in ipairs(tbl) do app:add(fl, tvb(off, 4)) end
+        end
+        return off + 4
+    end
+end

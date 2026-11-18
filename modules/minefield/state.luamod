@@ -1,0 +1,62 @@
+-- minefield/state.luamod — 雷场状态 PDU(PDU 37,雷场族)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 布局:雷场ID(6) 序号(2) force(1) 周界点数(1) 雷场类型(8)
+--       地雷类型数(2) 雷场位置(24,世界坐标f64) 雷场朝向(12,欧拉角f32)
+--       外观(2) 协议模式(2)
+--       + N×周界点(8=x/y 各 f32,相对雷场位置) + M×地雷类型(8)
+
+return function(C)
+    local f            = C.proto.fields
+
+    f.mf_seq           = ProtoField.uint16("displus.minefield_sequence", "雷场序号 (Minefield Sequence)", base.DEC)
+    f.mf_num_perimeter = ProtoField.uint8("displus.number_of_perimeter_points",
+        "周界点数 (Number of Perimeter Points)", base.DEC)
+    f.mf_num_types     = ProtoField.uint16("displus.number_of_mine_types",
+        "地雷类型数 (Number of Mine Types)", base.DEC)
+    f.mf_loc_x         = ProtoField.double("displus.minefield_location_x", "X (Minefield Location)")
+    f.mf_loc_y         = ProtoField.double("displus.minefield_location_y", "Y (Minefield Location)")
+    f.mf_loc_z         = ProtoField.double("displus.minefield_location_z", "Z (Minefield Location)")
+    f.mf_ori_psi       = ProtoField.float("displus.minefield_orientation_psi", "偏航 psi")
+    f.mf_ori_theta     = ProtoField.float("displus.minefield_orientation_theta", "俯仰 theta")
+    f.mf_ori_phi       = ProtoField.float("displus.minefield_orientation_phi", "横滚 phi")
+    f.mf_appearance    = ProtoField.uint16("displus.minefield_appearance", "雷场外观 (Minefield Appearance)", base.HEX)
+    f.mf_protocol      = ProtoField.uint16("displus.minefield_protocol_mode", "协议模式 (Protocol Mode)", base.DEC)
+    f.mf_pt_x          = ProtoField.float("displus.perimeter_point_x", "x (相对雷场位置)")
+    f.mf_pt_y          = ProtoField.float("displus.perimeter_point_y", "y (相对雷场位置)")
+
+    local function dissect_minefield_state(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 60, body) then return off end
+        off = C.add_entity_id(body, tvb, off, "雷场ID (Minefield ID)")
+        body:add(f.mf_seq, tvb(off, 2)); off = off + 2
+        body:add(C.proto.fields.force_id, tvb(off, 1)); off = off + 1
+        local npp = tvb(off, 1):uint()
+        body:add(f.mf_num_perimeter, tvb(off, 1)); off = off + 1
+        off = C.add_entity_type(body, tvb, off, "雷场类型 (Minefield Type)")
+        local nmt = tvb(off, 2):uint()
+        body:add(f.mf_num_types, tvb(off, 2)); off = off + 2
+        local l = body:add(tvb(off, 24), "雷场位置 (Minefield Location)")
+        l:add(f.mf_loc_x, tvb(off, 8)); l:add(f.mf_loc_y, tvb(off + 8, 8)); l:add(f.mf_loc_z, tvb(off + 16, 8))
+        off = off + 24
+        local o = body:add(tvb(off, 12), "雷场朝向 (Minefield Orientation)")
+        o:add(f.mf_ori_psi, tvb(off, 4)); o:add(f.mf_ori_theta, tvb(off + 4, 4)); o:add(f.mf_ori_phi, tvb(off + 8, 4))
+        off = off + 12
+        body:add(f.mf_appearance, tvb(off, 2)); off = off + 2
+        body:add(f.mf_protocol, tvb(off, 2)); off = off + 2
+        if npp > C.MAX_RECORDS then npp = C.MAX_RECORDS end
+        for i = 1, npp do
+            if not C.need(tvb, off, 8, body) then return off end
+            local p = body:add(tvb(off, 8), string.format("周界点 (Perimeter Point) [%d]", i - 1))
+            p:add(f.mf_pt_x, tvb(off, 4))
+            p:add(f.mf_pt_y, tvb(off + 4, 4))
+            off = off + 8
+        end
+        if nmt > C.MAX_RECORDS then nmt = C.MAX_RECORDS end
+        for i = 1, nmt do
+            if not C.need(tvb, off, 8, body) then return off end
+            off = C.add_entity_type(body, tvb, off, string.format("地雷类型 (Mine Type) [%d]", i - 1))
+        end
+        return off
+    end
+    C.register(37, dissect_minefield_state, "雷场状态 Minefield State")
+end

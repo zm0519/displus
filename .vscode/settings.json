@@ -1,0 +1,6 @@
+{
+    // 让编辑器把 .luamod 当作 Lua 文件:语法高亮、跳转定义、查找引用都可用
+    "files.associations": {
+        "*.luamod": "lua"
+    }
+}

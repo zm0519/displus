@@ -1,0 +1,52 @@
+-- entity/collision_elastic.luamod — 碰撞-弹性 PDU(PDU 66,实体信息族)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 布局:Issuing(6) Colliding(6) EventID(6) pad16(2) 接触速度(12) 质量(4)
+-- 撞击位置(12) 碰撞中间结果 6×f32(24) 单位表面法向(12) 恢复系数(4)
+-- 总长 12+88=100 字节 = 800 位
+
+return function(C)
+    local f = C.proto.fields
+
+    f.imp_loc_x = ProtoField.float("displus.impact_location_x", "X (Impact Location)")
+    f.imp_loc_y = ProtoField.float("displus.impact_location_y", "Y (Impact Location)")
+    f.imp_loc_z = ProtoField.float("displus.impact_location_z", "Z (Impact Location)")
+    -- 碰撞中间结果:惯量张量经力臂反对称矩阵前/后乘所得半正定矩阵的六个独立分量
+    f.cir_xx = ProtoField.float("displus.collision_intermediate_xx", "XX (Intermediate Result)")
+    f.cir_xy = ProtoField.float("displus.collision_intermediate_xy", "XY (Intermediate Result)")
+    f.cir_xz = ProtoField.float("displus.collision_intermediate_xz", "XZ (Intermediate Result)")
+    f.cir_yy = ProtoField.float("displus.collision_intermediate_yy", "YY (Intermediate Result)")
+    f.cir_yz = ProtoField.float("displus.collision_intermediate_yz", "YZ (Intermediate Result)")
+    f.cir_zz = ProtoField.float("displus.collision_intermediate_zz", "ZZ (Intermediate Result)")
+    f.sur_nx = ProtoField.float("displus.surface_normal_x", "X (Surface Normal)")
+    f.sur_ny = ProtoField.float("displus.surface_normal_y", "Y (Surface Normal)")
+    f.sur_nz = ProtoField.float("displus.surface_normal_z", "Z (Surface Normal)")
+    f.restitution = ProtoField.float("displus.coefficient_of_restitution",
+        "恢复系数 (Coefficient of Restitution)")
+
+    local function dissect_collision_elastic(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 88, body) then return off end
+        off = C.add_entity_id(body, tvb, off, "发包实体ID (Issuing Entity ID)")
+        off = C.add_entity_id(body, tvb, off, "碰撞实体ID (Colliding Entity ID)")
+        off = C.add_event_id(body, tvb, off, "事件ID (Event ID)")
+        body:add(f.pad16, tvb(off, 2)); off = off + 2
+        local v = body:add(tvb(off, 12), "接触速度 (Contact Velocity)")
+        v:add(f.vel_x, tvb(off, 4)); v:add(f.vel_y, tvb(off + 4, 4)); v:add(f.vel_z, tvb(off + 8, 4))
+        off = off + 12
+        body:add(f.collision_mass, tvb(off, 4)); off = off + 4
+        local l = body:add(tvb(off, 12), "撞击位置 (Location of Impact)")
+        l:add(f.imp_loc_x, tvb(off, 4)); l:add(f.imp_loc_y, tvb(off + 4, 4)); l:add(f.imp_loc_z, tvb(off + 8, 4))
+        off = off + 12
+        local cir = body:add(tvb(off, 24), "碰撞中间结果 (Collision Intermediate Result)")
+        cir:add(f.cir_xx, tvb(off, 4)); cir:add(f.cir_xy, tvb(off + 4, 4))
+        cir:add(f.cir_xz, tvb(off + 8, 4)); cir:add(f.cir_yy, tvb(off + 12, 4))
+        cir:add(f.cir_yz, tvb(off + 16, 4)); cir:add(f.cir_zz, tvb(off + 20, 4))
+        off = off + 24
+        local n = body:add(tvb(off, 12), "单位表面法向 (Unit Surface Normal)")
+        n:add(f.sur_nx, tvb(off, 4)); n:add(f.sur_ny, tvb(off + 4, 4)); n:add(f.sur_nz, tvb(off + 8, 4))
+        off = off + 12
+        body:add(f.restitution, tvb(off, 4)); off = off + 4
+        return off
+    end
+    C.register(66, dissect_collision_elastic, "碰撞-弹性 Collision-Elastic")
+end

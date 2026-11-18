@@ -1,0 +1,48 @@
+-- siman/shared.luamod — 仿真管理族族内共享(无 PDU,仅字段与辅助函数)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 时钟时间记录、发起/接收实体对、Datum ID 列表;base(11-22,73) 与
+-- reliable(51-62) 共用。定长/变长 Datum 记录本身是跨族公共记录
+-- (聚合状态 33 也用),在 records.luamod。
+
+return function(C)
+    local f = C.proto.fields
+    local floor = math.floor
+
+    ---------------------------------------------------------------- ClockTime 记录:8 字节
+    -- 8B = 小时 u32 + 时间 u32(bit0 绝对/相对,高31位=小时内毫秒)
+    f.clocktime = ProtoField.string("displus.clocktime", "时钟时间 (Clock Time)")
+
+    function C.add_clock_time(t, tvb, off, zh_name)
+        local sub  = t:add(tvb(off, 8), zh_name)
+        local hour = tvb(off, 4):uint()
+        local raw  = tvb(off + 4, 4):uint()
+        local abs  = raw % 2
+        local ms   = floor((raw - abs) / 2 * 3600000 / 2147483647)
+        local m    = floor(ms / 60000)
+        local s    = floor((ms - m * 60000) / 1000)
+        local mss  = ms - m * 60000 - s * 1000
+        sub:add(f.clocktime, tvb(off, 8),
+            string.format("第 %d 小时 %02d:%02d.%03d (%s)", hour, m, s, mss,
+                abs == 1 and "绝对 absolute" or "相对 relative"))
+        return off + 8
+    end
+
+    ---------------------------------------------------------------- 发起/接收实体对:12 字节
+    C.siman = {}
+    function C.siman.origin_pair(tvb, body, off)
+        off = C.add_entity_id(body, tvb, off, "发起实体ID (Originating Entity ID)")
+        off = C.add_entity_id(body, tvb, off, "接收实体ID (Receiving Entity ID)")
+        return off
+    end
+
+    ---------------------------------------------------------------- Datum ID 列表 xN(数据查询用)
+    function C.siman.add_datum_ids(t, tvb, off, zh_name, n)
+        if not C.need(tvb, off, n * 4, t) then return off end
+        local sub = t:add(tvb(off, n * 4), zh_name)
+        for i = 1, n do
+            sub:add(f.datum_id, tvb(off, 4)); off = off + 4
+        end
+        return off
+    end
+end

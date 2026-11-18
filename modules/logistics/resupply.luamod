@@ -1,0 +1,40 @@
+-- logistics/resupply.luamod — 再补给 PDU(PDU 6/7/8,后勤族)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 6 再补给提供 / 7 再补给接收 / 8 再补给取消
+-- 布局:6/7:receiving(6) supplying(6) num(1) pad16(2) pad8(1) + num×补给量(9);
+--       总 16+9N(注意与 5 不同:数量在前、无服务类型)
+--       8:receiving(6) supplying(6)
+
+return function(C)
+    local f = C.proto.fields
+
+    ---------------------------------------------------------------- 再补给提供(PDU 6)/ 再补给接收(PDU 7)
+    -- receiving(6) supplying(6) num(1) pad16(2) pad8(1) supplies(9N);总 28+9N
+    -- 注意与 ServiceRequest 字段顺序不同:数量在前
+    local function dissect_resupply(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 16, body) then return off end
+        off = C.add_entity_id(body, tvb, off, "接收实体ID (Receiving Entity ID)")
+        off = C.add_entity_id(body, tvb, off, "供应实体ID (Supplying Entity ID)")
+        if not C.need(tvb, off, 4, body) then return off end
+        local n = tvb(off, 1):uint()
+        body:add(f.num_supplies, tvb(off, 1)); off = off + 1
+        body:add(f.pad16, tvb(off, 2)); off = off + 2
+        body:add(f.pad8, tvb(off, 1)); off = off + 1
+        off = C.add_supplies(body, tvb, off, n)
+        return off
+    end
+
+    ---------------------------------------------------------------- 再补给取消(PDU 8)
+    -- receiving(6) supplying(6);标准 24B 无尾填充(7.4.5 表:总 192 位)
+    local function dissect_resupply_cancel(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 12, body) then return off end
+        off = C.add_entity_id(body, tvb, off, "接收实体ID (Receiving Entity ID)")
+        off = C.add_entity_id(body, tvb, off, "供应实体ID (Supplying Entity ID)")
+        return off
+    end
+
+    C.register(6, dissect_resupply, "再补给提供 Resupply Offer")
+    C.register(7, dissect_resupply, "再补给接收 Resupply Received")
+    C.register(8, dissect_resupply_cancel, "再补给取消 Resupply Cancel")
+end

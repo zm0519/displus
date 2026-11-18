@@ -1,0 +1,227 @@
+-- mgmt/aggregate.luamod — 聚合状态 PDU(PDU 33,实体管理族)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 布局:AggregateID(6) force(1) state(1) AggregateType(8) formation(4)
+--       Marking(1+31) 尺寸(12) 姿态(12) 质心(24,f64) 速度(12)
+--       聚合体数(2) 实体数(2) 静默聚合体类型数(2) 静默实体类型数(2)
+--       + 聚合体ID×6 + 实体ID×6 + 静默聚合体列表(12B/类,整体跳过)
+--       + 变长 Datum 数(4) + Datum 循环
+
+return function(C)
+    local f                   = C.proto.fields
+
+    ---------------------------------------------------------------- 公共字段
+    f.agg_id_site             = ProtoField.uint16("displus.aggregate_id_site", "聚合ID-站点 (Aggregate ID Site)", base.DEC)
+    f.agg_id_app              = ProtoField.uint16("displus.aggregate_id_application",
+        "聚合ID-应用 (Aggregate ID Application)", base.DEC)
+    f.agg_id_agg              = ProtoField.uint16("displus.aggregate_id_aggregate", "聚合ID-聚合体 (Aggregate ID Aggregate)",
+        base.DEC)
+    local V_AGG_KIND          = {
+        [0] = "其他 Other",
+        [1] = "军事编制 Military Hierarchy",
+        [2] = "同类型 Common Type",
+        [3] = "同任务 Common Mission",
+        [4] = "能力相近 Similar Capabilities",
+        [5] = "同位置 Common Location",
+    }
+    local V_AGG_CAT_USA_LAND  = {
+        [0] = "其他",
+        [1] = "单车",
+        [2] = "班组",
+        [3] = "排",
+        [4] = "炮兵连",
+        [5] = "连",
+        [6] = "营",
+        [7] = "团",
+        [8] = "旅",
+        [9] = "师",
+        [10] = "军",
+    }
+    local V_AGG_SUB_USA_LAND  = {
+        [0] = "其他 Other",
+        [1] = "骑兵连 Cavalry Troop",
+        [2] = "装甲兵 Armor",
+        [3] = "步兵 Infantry",
+        [4] = "机械化步兵 Mechanized Infantry",
+        [5] = "骑兵 Cavalry",
+        [6] = "装甲骑兵 Armored Cavalry",
+        [7] = "炮兵 Artillery",
+        [8] = "自行火炮 Self-Propelled Artillery",
+        [9] = "近距空中支援 Close Air Support",
+        [10] = "工兵 Engineer",
+        [11] = "防空炮兵 Air Defense Artillery",
+        [12] = "反坦克 Anti-Tank",
+        [13] = "陆军航空固定翼 Army Aviation Fixed-wing",
+        [14] = "陆军航空旋翼 Army Aviation Rotary-wing",
+        [15] = "陆军攻击直升机 Army Attack Helicopter",
+        [16] = "空中骑兵 Air Cavalry",
+        [17] = "装甲重装特遣队 Armor Heavy Task Force",
+        [18] = "摩托化步兵 Motorized Rifle",
+        [19] = "机械化重装特遣队 Mechanized Heavy Task Force",
+        [20] = "指挥所 Command Post",
+        [21] = "电子战与情报(CEWI) CEWI",
+        [22] = "纯坦克分队 Tank only",
+    }
+    local V_AGG_SPEC_USA_LAND = {
+        [0] = "无指挥部 No headquarters",
+        [1] = "有——聚合单元包含指挥部 Yes aggregate unit contains a headquarters",
+    }
+    f.agg_kind                = ProtoField.uint8("displus.agg_kind", "种类 (Kind)", base.DEC, V_AGG_KIND)
+    f.agg_dom                 = ProtoField.uint8("displus.agg_domain", "域 (Domain)", base.DEC, C.DOMAIN_TBL)
+    f.agg_country             = ProtoField.uint16("displus.agg_country", "国家 (Country)", base.DEC, C.COUNTRY_TBL)
+    f.agg_cat                 = ProtoField.uint8("displus.agg_category", "类别 (Category)", base.DEC)
+    f.agg_sub                 = ProtoField.uint8("displus.agg_subcategory", "子类别 (Subcategory)", base.DEC)
+    f.agg_spec                = ProtoField.uint8("displus.agg_specific", "细分 (Specific)", base.DEC)
+    f.agg_extra               = ProtoField.uint8("displus.agg_extra", "附加 (Extra)", base.DEC)
+    -- 军事编制+陆域+USA 档专用(与实体类型的按域类别字段同思路)
+    f.agg_cat_usa             = ProtoField.uint8("displus.agg_category_mil_land_usa",
+        "类别/军事编制·陆·USA (Category)", base.DEC, V_AGG_CAT_USA_LAND)
+    f.agg_sub_usa             = ProtoField.uint8("displus.agg_subcategory_mil_land_usa",
+        "子类别/军事编制·陆·USA (Subcategory)", base.DEC, V_AGG_SUB_USA_LAND)
+    f.agg_spec_usa            = ProtoField.uint8("displus.agg_specific_mil_land_usa",
+        "细分/军事编制·陆·USA (Specific)", base.DEC, V_AGG_SPEC_USA_LAND)
+
+    local function add_aggregate_id(t, tvb, off, zh_name)
+        local sub = t:add(tvb(off, 6), zh_name)
+        sub:add(f.agg_id_site, tvb(off, 2))
+        sub:add(f.agg_id_app, tvb(off + 2, 2))
+        sub:add(f.agg_id_agg, tvb(off + 4, 2))
+        return off + 6
+    end
+
+    local function add_aggregate_type(t, tvb, off, zh_name)
+        local sub = t:add(tvb(off, 8), string.format("%s, (%d:%d:%d:%d:%d:%d:%d)",
+            zh_name, tvb(off, 1):uint(), tvb(off + 1, 1):uint(), tvb(off + 2, 2):uint(),
+            tvb(off + 4, 1):uint(), tvb(off + 5, 1):uint(), tvb(off + 6, 1):uint(), tvb(off + 7, 1):uint()))
+        sub:add(f.agg_kind, tvb(off, 1)); sub:add(f.agg_dom, tvb(off + 1, 1))
+        sub:add(f.agg_country, tvb(off + 2, 2))
+        -- 类别/子类别/特定:仅"军事编制+陆域+USA"档查表,其余裸值
+        local usa_land = tvb(off, 1):uint() == 1 and tvb(off + 1, 1):uint() == 1
+            and tvb(off + 2, 2):uint() == 225
+        if usa_land then
+            sub:add(f.agg_cat_usa, tvb(off + 4, 1))
+            sub:add(f.agg_sub_usa, tvb(off + 5, 1))
+            sub:add(f.agg_spec_usa, tvb(off + 6, 1))
+        else
+            sub:add(f.agg_cat, tvb(off + 4, 1))
+            sub:add(f.agg_sub, tvb(off + 5, 1))
+            sub:add(f.agg_spec, tvb(off + 6, 1))
+        end
+        sub:add(f.agg_extra, tvb(off + 7, 1))
+        return off + 8
+    end
+
+    ---------------------------------------------------------------- 33 聚合状态
+    f.agg_state             = ProtoField.uint8("displus.aggregate_state", "聚合状态 (Aggregate State)", base.DEC)
+    f.agg_formation         = ProtoField.uint32("displus.aggregate_formation", "队形 (Formation)", base.DEC)
+    f.agg_mark_cs           = ProtoField.uint8("displus.aggregate_marking_character_set",
+        "标记字符集 (Marking Character Set)", base.DEC)
+    f.agg_mark              = ProtoField.string("displus.aggregate_marking", "聚合体标记 (Aggregate Marking)")
+    f.agg_dim_x             = ProtoField.float("displus.aggregate_dimensions_x", "X (Dimensions)")
+    f.agg_dim_y             = ProtoField.float("displus.aggregate_dimensions_y", "Y (Dimensions)")
+    f.agg_dim_z             = ProtoField.float("displus.aggregate_dimensions_z", "Z (Dimensions)")
+    f.agg_psi               = ProtoField.float("displus.aggregate_orientation_psi", "偏航 psi")
+    f.agg_theta             = ProtoField.float("displus.aggregate_orientation_theta", "俯仰 theta")
+    f.agg_phi               = ProtoField.float("displus.aggregate_orientation_phi", "横滚 phi")
+    f.agg_com_x             = ProtoField.double("displus.aggregate_center_of_mass_x", "X (Center of Mass)")
+    f.agg_com_y             = ProtoField.double("displus.aggregate_center_of_mass_y", "Y (Center of Mass)")
+    f.agg_com_z             = ProtoField.double("displus.aggregate_center_of_mass_z", "Z (Center of Mass)")
+    f.agg_vel_x             = ProtoField.float("displus.aggregate_velocity_x", "X (Velocity)")
+    f.agg_vel_y             = ProtoField.float("displus.aggregate_velocity_y", "Y (Velocity)")
+    f.agg_vel_z             = ProtoField.float("displus.aggregate_velocity_z", "Z (Velocity)")
+    f.agg_num_agg           = ProtoField.uint16("displus.aggregate_number_of_aggregates",
+        "下级聚合体数 (Number of Aggregates)", base.DEC)
+    f.agg_num_ent           = ProtoField.uint16("displus.aggregate_number_of_entities",
+        "下级实体数 (Number of Entities)", base.DEC)
+    f.agg_num_sagg          = ProtoField.uint16("displus.aggregate_number_of_silent_aggregates_types",
+        "静默聚合体类型数 (Silent Aggregate Types)", base.DEC)
+    f.agg_num_sent          = ProtoField.uint16("displus.aggregate_number_of_silent_entity_types",
+        "静默实体类型数 (Silent Entity Types)", base.DEC)
+    f.agg_num_vd            = ProtoField.uint32("displus.aggregate_number_of_variable_datum_records",
+        "变长数据记录数 (Variable Datum Records)", base.DEC)
+    -- 静默列表展开
+    f.agg_silent_agg_count  = ProtoField.uint16("displus.silent_aggregate_count",
+        "聚合数 (Number of Aggregates)", base.DEC)
+    f.agg_silent_ent_count  = ProtoField.uint16("displus.silent_entity_count",
+        "实体数 (Number of Entities)", base.DEC)
+    f.agg_silent_app_count  = ProtoField.uint16("displus.silent_appearance_count",
+        "外观记录数 (Number of Appearance Records)", base.DEC)
+    f.agg_silent_appearance = ProtoField.uint32("displus.silent_entity_appearance",
+        "实体外观 (Entity Appearance)", base.HEX)
+
+    local function dissect_aggregate_state(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 96, body) then return off end
+        off = add_aggregate_id(body, tvb, off, "聚合体ID (Aggregate ID)")
+        body:add(C.proto.fields.force_id, tvb(off, 1)); off = off + 1
+        body:add(f.agg_state, tvb(off, 1)); off = off + 1
+        off = add_aggregate_type(body, tvb, off, "聚合体类型 (Aggregate Type)")
+        body:add(f.agg_formation, tvb(off, 4)); off = off + 4
+        local mk = body:add(tvb(off, 32), "聚合体标记 (Aggregate Marking)")
+        mk:add(f.agg_mark_cs, tvb(off, 1)); off = off + 1
+        mk:add(f.agg_mark, tvb(off, 31)); off = off + 31
+        local d = body:add(tvb(off, 12), "尺寸 (Dimensions)")
+        d:add(f.agg_dim_x, tvb(off, 4)); d:add(f.agg_dim_y, tvb(off + 4, 4)); d:add(f.agg_dim_z, tvb(off + 8, 4))
+        off = off + 12
+        local o = body:add(tvb(off, 12), "姿态 (Orientation)")
+        o:add(f.agg_psi, tvb(off, 4)); o:add(f.agg_theta, tvb(off + 4, 4)); o:add(f.agg_phi, tvb(off + 8, 4))
+        off = off + 12
+        local c = body:add(tvb(off, 24), "质心位置 (Center of Mass)")
+        c:add(f.agg_com_x, tvb(off, 8)); c:add(f.agg_com_y, tvb(off + 8, 8)); c:add(f.agg_com_z, tvb(off + 16, 8))
+        off = off + 24
+        local v = body:add(tvb(off, 12), "速度 (Velocity)")
+        v:add(f.agg_vel_x, tvb(off, 4)); v:add(f.agg_vel_y, tvb(off + 4, 4)); v:add(f.agg_vel_z, tvb(off + 8, 4))
+        off = off + 12
+        local na = tvb(off, 2):uint()
+        body:add(f.agg_num_agg, tvb(off, 2)); off = off + 2
+        local ne = tvb(off, 2):uint()
+        body:add(f.agg_num_ent, tvb(off, 2)); off = off + 2
+        local nsa = tvb(off, 2):uint()
+        body:add(f.agg_num_sagg, tvb(off, 2)); off = off + 2
+        local nse = tvb(off, 2):uint()
+        body:add(f.agg_num_sent, tvb(off, 2)); off = off + 2
+        if na > C.MAX_RECORDS then na = C.MAX_RECORDS end
+        if ne > C.MAX_RECORDS then ne = C.MAX_RECORDS end
+        local la = body:add(tvb(off, 6 * na), "聚合体ID列表 (Aggregate ID List)")
+        for i = 1, na do off = add_aggregate_id(la, tvb, off, string.format("聚合体ID [%d]", i - 1)) end
+        local le = body:add(tvb(off, 6 * ne), "实体ID列表 (Entity ID List)")
+        for i = 1, ne do off = C.add_entity_id(le, tvb, off, string.format("实体ID [%d]", i - 1)) end
+
+        -- 静默聚合系统列表(每项 12B:聚合数2+pad16 2+聚合类型8;)
+        if nsa > C.MAX_RECORDS then nsa = C.MAX_RECORDS end
+        for i = 1, nsa do
+            if not C.need(tvb, off, 12, body) then return off end
+            local sas = body:add(tvb(off, 12),
+                string.format("静默聚合系统 (Silent Aggregate System) [%d]", i - 1))
+            sas:add(f.agg_silent_agg_count, tvb(off, 2))
+            sas:add(f.pad16, tvb(off + 2, 2))
+            off = off + 4
+            off = add_aggregate_type(sas, tvb, off, "聚合类型 (Aggregate Type)")
+        end
+        -- 静默实体系统列表(6.2.79:实体数2+外观数2+实体类型8+外观×4)
+        if nse > C.MAX_RECORDS then nse = C.MAX_RECORDS end
+        for i = 1, nse do
+            if not C.need(tvb, off, 12, body) then return off end
+            local ses = body:add(tvb(off, 12),
+                string.format("静默实体系统 (Silent Entity System) [%d]", i - 1))
+            ses:add(f.agg_silent_ent_count, tvb(off, 2))
+            local napp = tvb(off + 2, 2):uint()
+            ses:add(f.agg_silent_app_count, tvb(off + 2, 2))
+            off = off + 4
+            off = C.add_entity_type(ses, tvb, off, "实体类型 (Entity Type)")
+            for a = 1, napp do
+                if not C.need(tvb, off, 4, ses) then return off end
+                ses:add(f.agg_silent_appearance, tvb(off, 4))
+                    :append_text(string.format(" [%d]", a - 1))
+                off = off + 4
+            end
+        end
+        if C.need(tvb, off, 4, body) then
+            local nvd = tvb(off, 4):uint()
+            body:add(f.agg_num_vd, tvb(off, 4)); off = off + 4
+            if nvd > C.MAX_RECORDS then nvd = C.MAX_RECORDS end
+            off = C.add_variable_datums(body, tvb, off, "变长数据", nvd)
+        end
+        return off
+    end
+    C.register(33, dissect_aggregate_state, "聚合状态 Aggregate State")
+end

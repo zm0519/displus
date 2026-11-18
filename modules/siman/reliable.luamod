@@ -1,0 +1,65 @@
+-- siman/reliable.luamod — 仿真管理族带可靠性 PDU(PDU 51-62,R 系列)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+
+return function(C)
+    local f = C.proto.fields
+    local base = C.siman_base
+
+    -- 51/52 创建/移除实体-R:pair + reliability(1) + pad(3) + request_id(4)
+    local function dissect_siman_entity_r(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 20, body) then return off end
+        off = C.siman.origin_pair(tvb, body, off)
+        body:add(f.reliability, tvb(off, 1)); off = off + 1
+        body:add(f.vr_pad, tvb(off, 3)); off = off + 3
+        body:add(f.request_id, tvb(off, 4)); off = off + 4
+        return off
+    end
+
+    -- 53 启动/恢复-R:pair + real(8) + sim(8) + reliability(1) + pad(3) + request_id(4)
+    local function dissect_start_resume_r(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 32, body) then return off end
+        off = C.siman.origin_pair(tvb, body, off)
+        off = C.add_clock_time(body, tvb, off, "真实世界时间 (Real World Time)")
+        off = C.add_clock_time(body, tvb, off, "仿真时间 (Simulation Time)")
+        body:add(f.reliability, tvb(off, 1)); off = off + 1
+        body:add(f.vr_pad, tvb(off, 3)); off = off + 3
+        body:add(f.request_id, tvb(off, 4)); off = off + 4
+        return off
+    end
+
+    -- 54 停止/冻结-R:reason(1) behavior(1) reliability(1) pad(1) request_id(4)
+    local function dissect_stop_freeze_r(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 28, body) then return off end
+        off = C.siman.origin_pair(tvb, body, off)
+        off = C.add_clock_time(body, tvb, off, "真实世界时间 (Real World Time)")
+        body:add(f.reason, tvb(off, 1)); off = off + 1
+        local fb = body:add(f.frozen_behavior, tvb(off, 1))
+        fb:add(f.fb_run_clock, tvb(off, 1))
+        fb:add(f.fb_send_update, tvb(off, 1))
+        fb:add(f.fb_recv_update, tvb(off, 1))
+        off = off + 1
+        body:add(f.reliability, tvb(off, 1)); off = off + 1
+        body:add(f.pad8, tvb(off, 1)); off = off + 1
+        body:add(f.request_id, tvb(off, 4)); off = off + 4
+        return off
+    end
+
+    ---------------------------------------------------------------- 注册
+    C.register(51, dissect_siman_entity_r, "创建实体-R Create Entity-R")
+    C.register(52, dissect_siman_entity_r, "移除实体-R Remove Entity-R")
+    C.register(53, dissect_start_resume_r, "启动/恢复-R Start/Resume-R")
+    C.register(54, dissect_stop_freeze_r, "停止/冻结-R Stop/Freeze-R")
+    C.register(55, base.dissect_acknowledge, "确认-R Acknowledge-R")
+    C.register(56, function(tvb, b, o, p) return base.dissect_action_request(tvb, b, o, p, true) end,
+        "动作请求-R Action Request-R")
+    C.register(57, base.dissect_action_response, "动作响应-R Action Response-R")
+    C.register(58, function(tvb, b, o, p) return base.dissect_data_query(tvb, b, o, p, true) end,
+        "数据查询-R Data Query-R")
+    C.register(59, function(tvb, b, o, p) return base.dissect_data(tvb, b, o, p, true) end,
+        "设置数据-R Set Data-R")
+    C.register(60, function(tvb, b, o, p) return base.dissect_data(tvb, b, o, p, true) end,
+        "数据-R Data-R")
+    C.register(61, base.dissect_event_report, "事件报告-R Event Report-R")
+    C.register(62, base.dissect_comment, "注释-R Comment-R")
+end

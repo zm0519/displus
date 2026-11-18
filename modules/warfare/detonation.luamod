@@ -1,0 +1,83 @@
+-- warfare/detonation.luamod — 爆炸 PDU(PDU 3,作战族)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 布局:Firing(6) Target(6) Munition(6) EventID(6) Velocity(12)
+-- WorldLocation(24) BurstDescriptor(16) EntityCoordLocation(12,f32)
+-- detonation_result(1) numVP(1) pad16(2) VP循环(16N);总 104+16N 字节
+
+return function(C)
+    local f = C.proto.fields
+
+    f.det_loc_x = ProtoField.double("displus.detonation_location_x", "X (Location)")
+    f.det_loc_y = ProtoField.double("displus.detonation_location_y", "Y (Location)")
+    f.det_loc_z = ProtoField.double("displus.detonation_location_z", "Z (Location)")
+    f.det_ent_x = ProtoField.float("displus.detonation_entity_location_x", "X (Location in Entity)")
+    f.det_ent_y = ProtoField.float("displus.detonation_entity_location_y", "Y (Location in Entity)")
+    f.det_ent_z = ProtoField.float("displus.detonation_entity_location_z", "Z (Location in Entity)")
+
+    -- 爆炸结果 [UID 62](v37 全表 34 项)
+    local V_DET_RESULT = {
+        [0] = "其他 Other",
+        [1] = "命中实体 Entity Impact",
+        [2] = "近炸(实体近旁起爆) Entity Proximate Detonation",
+        [3] = "触地 Ground Impact",
+        [4] = "近地炸(地面近旁起爆) Ground Proximate Detonation",
+        [5] = "起爆 Detonation",
+        [6] = "无或不炸(哑弹) None or No Detonation (Dud)",
+        [7] = "高爆命中,小型 HE hit, small",
+        [8] = "高爆命中,中型 HE hit, medium",
+        [9] = "高爆命中,大型 HE hit, large",
+        [10] = "穿甲命中 Armor-piercing hit",
+        [11] = "土尘爆,小型 Dirt blast, small",
+        [12] = "土尘爆,中型 Dirt blast, medium",
+        [13] = "土尘爆,大型 Dirt blast, large",
+        [14] = "水柱爆,小型 Water blast, small",
+        [15] = "水柱爆,中型 Water blast, medium",
+        [16] = "水柱爆,大型 Water blast, large",
+        [17] = "空中命中 Air hit",
+        [18] = "命中建筑,小型 Building hit, small",
+        [19] = "命中建筑,中型 Building hit, medium",
+        [20] = "命中建筑,大型 Building hit, large",
+        [21] = "扫雷直列装药 Mine-clearing line charge",
+        [22] = "撞击环境对象 Environment object impact",
+        [23] = "环境对象近旁起爆 Environment object proximate detonation",
+        [24] = "入水 Water Impact",
+        [25] = "空爆 Air Burst",
+        [26] = "杀伤(1 型破片) Kill with fragment type 1",
+        [27] = "杀伤(2 型破片) Kill with fragment type 2",
+        [28] = "杀伤(3 型破片) Kill with fragment type 3",
+        [29] = "飞行段失效后 1 型破片杀伤 Kill with fragment type 1 after fly-out failure",
+        [30] = "飞行段失效后 2 型破片杀伤 Kill with fragment type 2 after fly-out failure",
+        [31] = "未命中(飞行段失效) Miss due to fly-out failure",
+        [32] = "未命中(末段失效) Miss due to end-game failure",
+        [33] = "未命中(飞行段与末段均失效) Miss due to fly-out and end-game failure",
+    }
+    f.detonation_result = ProtoField.uint8("displus.detonation_result",
+        "爆炸结果 (Detonation Result)", base.DEC, V_DET_RESULT)
+
+    local function dissect_detonation(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 72, body) then return off end
+        off = C.add_entity_id(body, tvb, off, "射击实体ID (Firing Entity ID)")
+        off = C.add_entity_id(body, tvb, off, "目标实体ID (Target Entity ID)")
+        off = C.add_entity_id(body, tvb, off, "弹药ID (Munition ID)")
+        off = C.add_event_id(body, tvb, off, "事件ID (Event ID)")
+        local v = body:add(tvb(off, 12), "速度 (Velocity)")
+        v:add(f.w_vel_x, tvb(off, 4)); v:add(f.w_vel_y, tvb(off + 4, 4)); v:add(f.w_vel_z, tvb(off + 8, 4))
+        off = off + 12
+        local l = body:add(tvb(off, 24), "世界坐标位置 (Location in World Coordinates)")
+        l:add(f.det_loc_x, tvb(off, 8)); l:add(f.det_loc_y, tvb(off + 8, 8)); l:add(f.det_loc_z, tvb(off + 16, 8))
+        off = off + 24
+        off = C.add_burst_descriptor(body, tvb, off)
+        local e = body:add(tvb(off, 12), "实体坐标位置 (Location in Entity Coordinates)")
+        e:add(f.det_ent_x, tvb(off, 4)); e:add(f.det_ent_y, tvb(off + 4, 4)); e:add(f.det_ent_z, tvb(off + 8, 4))
+        off = off + 12
+        body:add(f.detonation_result, tvb(off, 1)); off = off + 1
+        local nvp = tvb(off, 1):uint()
+        body:add(f.num_art_params, tvb(off, 1)); off = off + 1
+        body:add(f.pad16, tvb(off, 2)); off = off + 2
+        if nvp > C.MAX_RECORDS then nvp = C.MAX_RECORDS end
+        off = C.add_variable_params(body, tvb, off, nvp)
+        return off
+    end
+    C.register(3, dissect_detonation, "爆炸 Detonation")
+end

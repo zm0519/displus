@@ -1,0 +1,504 @@
+-- enums_core.luamod — 核心枚举中文表 + 公共头解析
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 显示约定:中文 + 英文原文并列
+
+return function(C)
+    local f                              = C.proto.fields
+
+    ---------------------------------------------------------------- 协议版本 [UID 3]
+    local VERSION                        = {
+        [0] = "其他 Other",
+        [1] = "DIS PDU 版本 1.0 (1992-05) DIS PDU version 1.0 (May 92)",
+        [2] = "IEEE 1278-1993",
+        [3] = "DIS 应用协议版本 2.0 第三稿 (1993-05-28)",
+        [4] = "DIS 应用协议版本 2.0 第四稿修订版 (1994-03-16)",
+        [5] = "IEEE 1278.1-1995",
+        [6] = "IEEE 1278.1A-1998",
+        [7] = "IEEE 1278.1-2012",
+        [8] = "IEEE 1278.1-202X",
+    }
+
+    ---------------------------------------------------------------- PDU 类型 [UID 4]
+    local PDU_TYPE                       = {
+        [0]  = "其他 Other",
+        [1]  = "实体状态 Entity State",
+        [2]  = "开火 Fire",
+        [3]  = "爆炸 Detonation",
+        [4]  = "碰撞 Collision",
+        [5]  = "服务请求 Service Request",
+        [6]  = "再补给提供 Resupply Offer",
+        [7]  = "再补给接收 Resupply Received",
+        [8]  = "再补给取消 Resupply Cancel",
+        [9]  = "修理完成 Repair Complete",
+        [10] = "修理响应 Repair Response",
+        [11] = "创建实体 Create Entity",
+        [12] = "删除实体 Remove Entity",
+        [13] = "启动/恢复 Start/Resume",
+        [14] = "停止/冻结 Stop/Freeze",
+        [15] = "确认 Acknowledge",
+        [16] = "动作请求 Action Request",
+        [17] = "动作响应 Action Response",
+        [18] = "数据查询 Data Query",
+        [19] = "设置数据 Set Data",
+        [20] = "数据 Data",
+        [21] = "事件报告 Event Report",
+        [22] = "注释 Comment",
+        [23] = "电磁发射 Electromagnetic Emission",
+        [24] = "激光 Laser",
+        [25] = "发射机 Transmitter",
+        [26] = "信号 Signal",
+        [27] = "接收机 Receiver",
+        [28] = "敌我识别 IFF",
+        [29] = "水声 Acoustic",
+        [30] = "补充发射/实体状态 Supplemental Emission/Entity State",
+        [31] = "内话信号 Intercom Signal",
+        [32] = "内话控制 Intercom Control",
+        [33] = "聚合状态 Aggregate State",
+        [34] = "IsGroupOf",
+        [35] = "所有权转移 Transfer Ownership",
+        [36] = "IsPartOf",
+        [37] = "雷场状态 Minefield State",
+        [38] = "雷场查询 Minefield Query",
+        [39] = "雷场数据 Minefield Data",
+        [40] = "雷场响应 NACK Minefield Response NACK",
+        [41] = "环境过程 Environmental Process",
+        [42] = "网格数据 Gridded Data",
+        [43] = "点对象状态 Point Object State",
+        [44] = "线对象状态 Linear Object State",
+        [45] = "面对象状态 Areal Object State",
+        [46] = "时空位置信息(TSPI) TSPI",
+        [47] = "外观 Appearance",
+        [48] = "铰接部件 Articulated Parts",
+        [49] = "实装(LE)开火 LE Fire",
+        [50] = "实装(LE)爆炸 LE Detonation",
+        [51] = "创建实体-R Create Entity-R",
+        [52] = "删除实体-R Remove Entity-R",
+        [53] = "启动/恢复-R Start/Resume-R",
+        [54] = "停止/冻结-R Stop/Freeze-R",
+        [55] = "确认-R Acknowledge-R",
+        [56] = "动作请求-R Action Request-R",
+        [57] = "动作响应-R Action Response-R",
+        [58] = "数据查询-R Data Query-R",
+        [59] = "设置数据-R Set Data-R",
+        [60] = "数据-R Data-R",
+        [61] = "事件报告-R Event Report-R",
+        [62] = "注释-R Comment-R",
+        [63] = "记录-R Record-R",
+        [64] = "设置记录-R Set Record-R",
+        [65] = "记录查询-R Record Query-R",
+        [66] = "碰撞——弹性 Collision-Elastic",
+        [67] = "实体状态更新 Entity State Update",
+        [68] = "定向能射击 Directed Energy Fire",
+        [69] = "实体损伤状态 Entity Damage Status",
+        [70] = "信息作战动作 Information Operations Action",
+        [71] = "信息作战报告 Information Operations Report",
+        [72] = "属性 Attribute",
+        [73] = "应用控制 Application Control",
+        [74] = "敌我识别交互 IFF Interactive",
+        [75] = "逻辑对象状态 Logical Object State",
+        [76] = "逻辑网络状态 Logical Network State",
+        [77] = "气象 Weather",
+        [78] = "通信节点 Communications Node",
+    }
+
+    ---------------------------------------------------------------- 协议族 [UID 5]
+    local FAMILY                         = {
+        [0]  = "其他 Other",
+        [1]  = "实体信息/交互 Entity Information/Interaction",
+        [2]  = "战争(作战) Warfare",
+        [3]  = "后勤 Logistics",
+        [4]  = "无线电通信 Radio Communications",
+        [5]  = "仿真管理 Simulation Management",
+        [6]  = "分布式发射再生 Distributed Emission Regeneration",
+        [7]  = "实体管理 Entity Management",
+        [8]  = "雷场 Minefield",
+        [9]  = "合成环境 Synthetic Environment",
+        [10] = "带可靠性的仿真管理 Simulation Management with Reliability",
+        [11] = "实装实体信息/交互 Live Entity Information/Interaction",
+        [12] = "非实时 Non-Real-Time",
+        [13] = "信息作战 Information Operations",
+    }
+
+    ---------------------------------------------------------------- 兵力标识 [UID 6]
+    local FORCE                          = {
+        [0] = "其他 Other",
+        [1] = "友方 Friendly",
+        [2] = "敌方 Opposing",
+        [3] = "中立 Neutral",
+        [4] = "友方 2 Friendly 2",
+        [5] = "敌方 2 Opposing 2",
+        [6] = "中立 2 Neutral 2",
+        [7] = "友方 3 Friendly 3",
+        [8] = "敌方 3 Opposing 3",
+        [9] = "中立 3 Neutral 3",
+        [10] = "友方 4 Friendly 4",
+        [11] = "敌方 4 Opposing 4",
+        [12] = "中立 4 Neutral 4",
+        [13] = "友方 5 Friendly 5",
+        [14] = "敌方 5 Opposing 5",
+        [15] = "中立 5 Neutral 5",
+        [16] = "友方 6 Friendly 6",
+        [17] = "敌方 6 Opposing 6",
+        [18] = "中立 6 Neutral 6",
+        [19] = "友方 7 Friendly 7",
+        [20] = "敌方 7 Opposing 7",
+        [21] = "中立 7 Neutral 7",
+        [22] = "友方 8 Friendly 8",
+        [23] = "敌方 8 Opposing 8",
+        [24] = "中立 8 Neutral 8",
+        [25] = "友方 9 Friendly 9",
+        [26] = "敌方 9 Opposing 9",
+        [27] = "中立 9 Neutral 9",
+        [28] = "Friendly 10",
+        [29] = "Opposing 10",
+        [30] = "Neutral 10",
+    }
+
+    ---------------------------------------------------------------- 实体种类 [UID 7]
+    local KIND                           = {
+        [0] = "其他 Other",
+        [1] = "平台 Platform",
+        [2] = "弹药 Munition",
+        [3] = "生命体 Life form",
+        [4] = "环境 Environmental",
+        [5] = "文化地物 Cultural feature",
+        [6] = "补给 Supply",
+        [7] = "无线电 Radio",
+        [8] = "消耗性器材 Expendable",
+        [9] = "传感器/发射器 Sensor/Emitter",
+        [10] = "指挥控制(C2)逻辑对象 Command and Control (C2) Logical Object",
+    }
+
+    ---------------------------------------------------------------- 域 [UID 8]
+    local DOMAIN                         = {
+        [0] = "其他 Other",
+        [1] = "陆域 Land",
+        [2] = "空域 Air",
+        [3] = "水面 Surface",
+        [4] = "水下 Subsurface",
+        [5] = "太空 Space",
+    }
+
+    ---------------------------------------------------------------- 平台类别表(kind=1 时按域选用) [UID 9-13]
+    local CAT_LAND                       = {
+        [0] = "其他 Other",
+        [1] = "坦克 Tank",
+        [2] = "装甲战车 Armored Fighting Vehicle",
+        [3] = "装甲效用车辆 Armored Utility Vehicle",
+        [4] = "自行火炮 Self-Propelled Artillery",
+        [5] = "牵引火炮 Towed Artillery",
+        [6] = "小型轮式效用车辆 Small Wheeled Utility Vehicle",
+        [7] = "大型轮式效用车辆 Large Wheeled Utility Vehicle",
+        [8] = "小型履带效用车辆 Small Tracked Utility Vehicle",
+        [9] = "大型履带效用车辆 Large Tracked Utility Vehicle",
+        [10] = "迫击炮 Mortar",
+        [11] = "扫雷犁 Mine Plow",
+        [12] = "扫雷耙 Mine Rake",
+        [13] = "扫雷碾 Mine Roller",
+        [14] = "货物拖车 Cargo Trailer",
+        [15] = "燃油拖车 Fuel Trailer",
+        [16] = "发电拖车 Generator Trailer",
+        [17] = "水罐拖车 Water Trailer",
+        [18] = "工程装备 Engineer Equipment",
+        [19] = "重装备运输拖车 Heavy Equipment Transport Trailer",
+        [20] = "维修装备拖车 Maintenance Equipment Trailer",
+        [21] = "炮架前车 Limber",
+        [22] = "洗消拖车 Chemical Decontamination Trailer",
+        [23] = "警报系统 Warning System",
+        [24] = "列车——机车 Train - Engine",
+        [25] = "列车——车厢 Train - Car",
+        [26] = "列车——守车 Train - Caboose",
+        [27] = "民用车辆 Civilian Vehicle",
+        [28] = "防空/反导单元装备 Air Defense / Missile Defense Unit Equipment",
+        [29] = "指挥、控制、通信与情报(C3I)系统",
+        [30] = "作战设施 Operations Facility",
+        [31] = "情报设施 Intelligence Facility",
+        [32] = "监视设施 Surveillance Facility",
+        [33] = "通信设施 Communications Facility",
+        [34] = "指挥设施 Command Facility",
+        [35] = "C4I 设施 C4I Facility",
+        [36] = "控制设施 Control Facility",
+        [37] = "火控设施 Fire Control Facility",
+        [38] = "导弹防御设施 Missile Defense Facility",
+        [39] = "野战指挥所 Field Command Post",
+        [40] = "观察哨 Observation Post",
+        [41] = "扫雷链锤 Mine Flail",
+        [42] = "固定身管/炮塔火炮 Fixed Barrel/Turret Gun",
+        [43] = "固定导弹发射架 Fixed Missile Launcher",
+        [50] = "无人(平台) Unmanned",
+        [80] = "摩托车 Motorcycle",
+        [81] = "轿车 Car",
+        [82] = "公共汽车 Bus",
+        [83] = "单体载货卡车 Single Unit Cargo Truck",
+        [84] = "单体效用/应急卡车 Single Unit Utility/Emergency Truck",
+        [85] = "多单元载货卡车 Multiple Unit Cargo Truck",
+        [86] = "多单元效用/应急卡车 Multiple Unit Utility/Emergency Truck",
+        [87] = "建筑专用车辆 Construction Specialty Vehicle",
+        [88] = "农业专用车辆 Farm Specialty Vehicle",
+        [89] = "拖车 Trailer",
+        [90] = "娱乐车辆 Recreational",
+        [91] = "非机动车 Non-motorized",
+        [92] = "列车 Trains",
+        [93] = "效用/应急轿车 Utility/Emergency Car",
+    }
+    local CAT_AIR                        = {
+        [0] = "其他 Other",
+        [1] = "战斗机/防空 Fighter/Air Defense",
+        [2] = "攻击机/打击 Attack/Strike",
+        [3] = "轰炸机 Bomber",
+        [4] = "运输机/加油机 Cargo/Tanker",
+        [5] = "反潜/巡逻/观察 ASW/Patrol/Observation",
+        [6] = "电子战(EW) Electronic Warfare (EW)",
+        [7] = "侦察 Reconnaissance",
+        [8] = "监视/指挥控制(空中预警) Surveillance/C2 (Airborne Early Warning)",
+        [9] = "空-海救援(ASR) Air-Sea Rescue (ASR)",
+        [20] = "攻击直升机 Attack Helicopter",
+        [21] = "通用直升机 Utility Helicopter",
+        [22] = "反潜战/巡逻直升机 Anti-Submarine Warfare/Patrol Helicopter",
+        [23] = "运输直升机 Cargo Helicopter",
+        [24] = "观察直升机 Observation Helicopter",
+        [25] = "特种作战直升机 Special Operations Helicopter",
+        [26] = "训练直升机 Training Helicopter",
+        [40] = "教练机 Trainer",
+        [50] = "无人(平台) Unmanned",
+        [57] = "非作战商用飞机 Non-Combatant Commercial Aircraft",
+        [80] = "民用超轻型飞机,非刚性翼 Civilian Ultralight Aircraft, Non-rigid Wing",
+        [81] = "民用超轻型飞机,刚性翼 Civilian Ultralight Aircraft, Rigid Wing",
+        [83] = "民用固定翼飞机——滑翔机 Civilian Fixed Wing Aircraft, Glider",
+        [84] = "民用固定翼飞机——轻型运动型(≤1,320 磅/600 千克)",
+        [85] = "民用固定翼飞机——小型(≤12,500 磅/5,670 千克)",
+        [86] = "民用固定翼飞机——中型(≤41,000 磅/18,597 千克)",
+        [87] = "民用固定翼飞机——大型(≤255,000 磅/115,666 千克)",
+        [88] = "民用固定翼飞机——重型(>255,000 磅/115,666 千克)",
+        [90] = "民用直升机——小型(≤7,000 磅/3,175 千克)",
+        [91] = "民用直升机——中型(≤20,000 磅/9,072 千克)",
+        [92] = "民用直升机——大型(>20,000 磅/9,072 千克)",
+        [93] = "民用自转旋翼机 Civilian Autogyro",
+        [100] = "民用轻于空气——气球 Civilian Lighter than Air, Balloon",
+        [101] = "民用轻于空气——飞艇 Civilian Lighter than Air, Airship",
+    }
+    local CAT_SURFACE                    = {
+        [0] = "其他 Other",
+        [1] = "航空母舰 Carrier",
+        [2] = "指挥舰/巡洋舰 Command Ship/Cruiser",
+        [3] = "导弹巡洋舰 Guided Missile Cruiser",
+        [4] = "导弹驱逐舰(DDG) Guided Missile Destroyer (DDG)",
+        [5] = "驱逐舰(DD) Destroyer (DD)",
+        [6] = "导弹护卫舰(FFG) Guided Missile Frigate (FFG)",
+        [7] = "轻型舰/巡逻艇 Light/Patrol Craft",
+        [8] = "反水雷舰/艇 Mine Countermeasure Ship/Craft",
+        [9] = "船坞登陆舰 Dock Landing Ship",
+        [10] = "坦克登陆舰 Tank Landing Ship",
+        [11] = "登陆艇 Landing Craft",
+        [12] = "轻型航空母舰 Light Carrier",
+        [13] = "巡洋舰/直升机母舰 Cruiser/Helicopter Carrier",
+        [14] = "水翼艇 Hydrofoil",
+        [15] = "气垫/表面效应船 Air Cushion/Surface Effect",
+        [16] = "辅助舰船 Auxiliary",
+        [17] = "辅助舰船——商船 Auxiliary, Merchant Marine",
+        [18] = "通用(舰艇) Utility",
+        [19] = "无人水面艇(USV) Unmanned Surface Vehicle (USV)",
+        [20] = "近海战斗舰(LCS) Littoral Combat Ships (LCS)",
+        [21] = "监视船 Surveillance Ship",
+        [50] = "护卫舰(含轻护卫舰) Frigate (including Corvette)",
+        [51] = "战列舰 Battleship",
+        [52] = "重巡洋舰 Heavy Cruiser",
+        [53] = "驱逐舰供应舰 Destroyer Tender",
+        [54] = "两栖攻击舰 Amphibious Assault Ship",
+        [55] = "两栖货船 Amphibious Cargo Ship",
+        [56] = "两栖船坞运输舰 Amphibious Transport Dock",
+        [57] = "弹药船 Ammunition Ship",
+        [58] = "战斗补给船 Combat Stores Ship",
+        [59] = "监视拖曳阵声呐系统(SURTASS)",
+        [60] = "快速战斗支援舰 Fast Combat Support Ship",
+        [61] = "非作战舰船 Non-Combatant Ship",
+        [62] = "海岸警卫队巡逻舰 Coast Guard Cutters",
+        [63] = "海岸警卫队艇 Coast Guard Boats",
+        [64] = "快速攻击艇 Fast Attack Craft",
+        [65] = "充气艇 Inflatable Boat",
+        [80] = "客船(商船第 1 组) Passenger Vessel (Group 1 Merchant)",
+        [81] = "干货船(商船第 2 组) Dry Cargo Ship (Group 2 Merchant)",
+        [82] = "油轮(商船第 3 组) Tanker (Group 3 Merchant)",
+        [83] = "近海支援船 Offshore Support Vessel",
+        [84] = "私人摩托艇 Private Motorboat",
+        [85] = "私人帆船 Private Sailboat",
+        [86] = "渔船 Fishing Vessel",
+        [87] = "其他船舶 Other Vessels",
+        [88] = "人力驱动水上载具 Human-Powered Watercraft",
+        [100] = "搜索与救援船 Search and Rescue Vessels",
+        [101] = "救生设备 Life-Saving Equipment",
+    }
+    local CAT_SUBSURFACE                 = {
+        [0] = "其他 Other",
+        [1] = "SSBN(弹道导弹核潜艇)",
+        [2] = "SSGN(导弹核潜艇)",
+        [3] = "SSN(攻击型核潜艇——鱼雷)",
+        [4] = "SSG(常规导弹潜艇)",
+        [5] = "SS(常规攻击潜艇——鱼雷/巡逻)",
+        [6] = "SSAN(核动力辅助潜艇)",
+        [7] = "SSA(常规辅助潜艇)",
+        [8] = "无人水下航行器(UUV) Unmanned Underwater Vehicle (UUV)",
+        [9] = "SSB(弹道导弹潜艇)",
+        [10] = "SSC(沿岸潜艇,150 吨以上)",
+        [11] = "SSP(攻击潜艇——柴油不依赖空气推进)",
+        [12] = "SSM(袖珍潜艇,150 吨以下)",
+        [13] = "SSNR(特种攻击潜艇)",
+        [14] = "SST(训练潜艇)",
+        [15] = "AGSS(辅助潜艇)",
+        [16] = "半潜船 Semi-Submersible Boats",
+        [80] = "民用潜艇 Civilian Submarines",
+        [81] = "民用潜水器 Civilian Submersibles",
+        [82] = "民用半潜船 Civilian Semi-Submersible Boats",
+    }
+    local CAT_SPACE                      = {
+        [0] = "其他 Other",
+        [1] = "载人航天器 Manned Spacecraft",
+        [2] = "无人(已弃用) Unmanned (deprecated)",
+        [3] = "运载火箭 Booster",
+        [10] = "碎片 Debris",
+        [11] = "卫星——任务未知/未指明 Satellite - Unknown/Unspecified Mission",
+        [12] = "卫星——通信 Satellite - Communication",
+        [13] = "卫星——导航 Satellite - Navigation",
+        [14] = "卫星——科学/试验/演示 Satellite - Science/Experimental/Demonstration",
+        [15] = "卫星——惯性(目标/反射器/校准) Satellite - Inert (Target/Reflector/Calibration)",
+        [16] = "卫星——对地观测 Satellite - Earth Observation",
+        [17] = "卫星——空间监视 Satellite - Space Surveillance",
+        [18] = "卫星——天文 Satellite - Astronomy",
+        [19] = "卫星——气象 Satellite - Meteorology",
+        [20] = "卫星——军用 Satellite - Military",
+    }
+
+    C.CAT_LAND, C.CAT_AIR, C.CAT_SURFACE = CAT_LAND, CAT_AIR, CAT_SURFACE
+    C.CAT_SUBSURFACE, C.CAT_SPACE        = CAT_SUBSURFACE, CAT_SPACE
+
+    ---------------------------------------------------------------- PDU 状态位(v7 头部) [UID 301-309]
+    local ST_TEI                         = { [0] = "无差异 No Difference", [1] = "有差异 Difference" }
+    local ST_LVC                         = { [0] = "未声明 No Statement", [1] = "实兵 Live", [2] = "虚拟 Virtual", [3] =
+    "构造 Constructive" }
+    local ST_CEI                         = { [0] = "未耦合 Not Coupled", [1] = "已耦合 Coupled" }
+    local ST_FTI                         = { [0] = "弹药 Munition", [1] = "消耗性器材 Expendable" }
+    local ST_DTI                         = { [0] = "弹药 Munition", [1] = "消耗性器材 Expendable", [2] =
+    "非弹药爆炸 Non-munition Explosion" }
+    local ST_RAI                         = { [0] = "未声明 No Statement", [1] = "未挂接 Unattached", [2] = "已挂接 Attached" }
+    local ST_IAI                         = { [0] = "未声明 No Statement", [1] = "未挂接 Unattached", [2] = "已挂接 Attached" } -- [UID 307]
+    local ST_ISM                         = { [0] = "再生 Regeneration", [1] = "交互 Interactive" } -- [UID 308]
+    local ST_AII                         = { [0] = "未激活 Not Active", [1] = "已激活 Active" } -- [UID 389]
+
+    f.pdu_status                         = ProtoField.uint8("displus.pdu_status", "PDU状态 (PDU Status)", base.HEX)
+    f.pdu_status_tei                     = ProtoField.uint8("displus.pdustatus.tei", "移交实体指示器 TEI", base.HEX, ST_TEI,
+        0x01)
+    f.pdu_status_lvc                     = ProtoField.uint8("displus.pdustatus.lvc", "LVC指示器 LVCI", base.HEX, ST_LVC,
+        0x06)
+    f.pdu_status_cei                     = ProtoField.uint8("displus.pdustatus.cei", "耦合扩展指示器 CEI", base.HEX, ST_CEI,
+        0x08)
+    f.pdu_status_fti                     = ProtoField.uint8("displus.pdustatus.fti", "开火类型指示器 FTI", base.HEX, ST_FTI,
+        0x10)
+    f.pdu_status_dti                     = ProtoField.uint8("displus.pdustatus.dti", "爆炸类型指示器 DTI", base.HEX, ST_DTI,
+        0x30)
+    f.pdu_status_rai                     = ProtoField.uint8("displus.pdustatus.rai", "无线电挂接指示器 RAI", base.HEX, ST_RAI,
+        0x30)
+    f.pdu_status_iai                     = ProtoField.uint8("displus.pdustatus.iai", "内话挂接指示器 IAI", base.HEX, ST_IAI,
+        0x30)
+    f.pdu_status_ism                     = ProtoField.uint8("displus.pdustatus.ism", "IFF仿真模式 ISM", base.HEX, ST_ISM,
+        0x10)
+    f.pdu_status_aii                     = ProtoField.uint8("displus.pdustatus.aii", "主动询问指示器 AII", base.HEX, ST_AII,
+        0x20)
+    f.pdu_status_raw                     = ProtoField.uint8("displus.pdustatus.field",
+        "未实现位 (not implemented for this PDU type)", base.HEX)
+
+    ---------------------------------------------------------------- 头部字段定义
+    f.version                            = ProtoField.uint8("displus.protocol_version", "协议版本 (Proto version)", base.DEC,
+        VERSION)
+    f.exercise                           = ProtoField.uint8("displus.exercise_id", "演练ID (Exercise ID)", base.DEC)
+    f.pdu_type                           = ProtoField.uint8("displus.pdu_type", "PDU类型 (PDU type)", base.DEC, PDU_TYPE)
+    f.family                             = ProtoField.uint8("displus.protocol_family", "协议族 (Proto Family)", base.DEC,
+        FAMILY)
+    f.timestamp                          = ProtoField.string("displus.timestamp", "时间戳 (Timestamp)")
+    f.pdu_length                         = ProtoField.uint16("displus.pdu_length", "PDU长度 (PDU Length)", base.DEC)
+    f.hdr_pad16                          = ProtoField.uint16("displus.hdr_pad16", "填充 (Padding)", base.HEX)
+    f.hdr_pad8                           = ProtoField.uint8("displus.hdr_pad8", "填充 (Padding)", base.HEX)
+
+    C.PDU_TYPE_TBL                       = PDU_TYPE
+    C.FAMILY_TBL                         = FAMILY
+    C.FORCE_TBL                          = FORCE
+    C.KIND_TBL                           = KIND
+    C.DOMAIN_TBL                         = DOMAIN
+    C.VERSION_TBL                        = VERSION
+
+    ---------------------------------------------------------------- PDU 状态位解析
+    local function add_pdu_status(st, tvb, off, pdu_type)
+        if pdu_type == 1 or pdu_type == 23 or pdu_type == 24
+            or pdu_type == 41 or pdu_type == 67 then
+            st:add(f.pdu_status_cei, tvb(off, 1))
+            st:add(f.pdu_status_lvc, tvb(off, 1))
+            st:add(f.pdu_status_tei, tvb(off, 1))
+        elseif pdu_type == 2 then
+            st:add(f.pdu_status_fti, tvb(off, 1))
+            st:add(f.pdu_status_cei, tvb(off, 1))
+            st:add(f.pdu_status_lvc, tvb(off, 1))
+        elseif pdu_type == 3 then
+            st:add(f.pdu_status_dti, tvb(off, 1))
+            st:add(f.pdu_status_cei, tvb(off, 1))
+            st:add(f.pdu_status_lvc, tvb(off, 1))
+        elseif (pdu_type >= 4 and pdu_type <= 22)
+            or (pdu_type >= 29 and pdu_type <= 30)
+            or (pdu_type >= 33 and pdu_type <= 40)
+            or (pdu_type >= 42 and pdu_type <= 66)
+            or (pdu_type >= 68 and pdu_type <= 71) then
+            st:add(f.pdu_status_cei, tvb(off, 1))
+            st:add(f.pdu_status_lvc, tvb(off, 1))
+        elseif pdu_type >= 25 and pdu_type <= 27 then
+            st:add(f.pdu_status_rai, tvb(off, 1))
+            st:add(f.pdu_status_cei, tvb(off, 1))
+            st:add(f.pdu_status_lvc, tvb(off, 1))
+            st:add(f.pdu_status_tei, tvb(off, 1))
+        elseif pdu_type == 28 then
+            -- IFF:AII + ISM + CEI + LVC + TEI
+            st:add(f.pdu_status_aii, tvb(off, 1))
+            st:add(f.pdu_status_ism, tvb(off, 1))
+            st:add(f.pdu_status_cei, tvb(off, 1))
+            st:add(f.pdu_status_lvc, tvb(off, 1))
+            st:add(f.pdu_status_tei, tvb(off, 1))
+        elseif pdu_type == 31 or pdu_type == 32 then
+            -- 内话信号/控制:IAI + CEI + LVC + TEI
+            st:add(f.pdu_status_iai, tvb(off, 1))
+            st:add(f.pdu_status_cei, tvb(off, 1))
+            st:add(f.pdu_status_lvc, tvb(off, 1))
+            st:add(f.pdu_status_tei, tvb(off, 1))
+        elseif pdu_type == 72 then
+            -- 属性:仅 LVC
+            st:add(f.pdu_status_lvc, tvb(off, 1))
+        else
+            st:add(f.pdu_status_raw, tvb(off, 1))
+        end
+    end
+    C.add_pdu_status = add_pdu_status
+
+    ---------------------------------------------------------------- 12 字节公共头
+    function C.dissect_header(tvb, root)
+        local hdr = root:add(tvb(0, 12), "头部 (Header)")
+        local version = tvb(0, 1):uint()
+        local pdu_type = tvb(2, 1):uint()
+        hdr:add(f.version, tvb(0, 1))
+        hdr:add(f.exercise, tvb(1, 1))
+        hdr:add(f.pdu_type, tvb(2, 1))
+        hdr:add(f.family, tvb(3, 1))
+        hdr:add(f.timestamp, tvb(4, 4), C.ts_text(tvb, 4))
+        hdr:add(f.pdu_length, tvb(8, 2))
+        if version < 7 then
+            hdr:add(f.hdr_pad16, tvb(10, 2))
+        else
+            local st = hdr:add(f.pdu_status, tvb(10, 1))
+            add_pdu_status(st, tvb, 10, pdu_type)
+            hdr:add(f.hdr_pad8, tvb(11, 1))
+        end
+        -- 三向长度自检之一:头部声明长度 vs 实际长度
+        local declared = tvb(8, 2):uint()
+        if declared ~= tvb:len() then
+            hdr:add(tvb(8, 2),
+                string.format("[长度] 头部声明 %d 字节,实际 %d 字节", declared, tvb:len()))
+        end
+        return hdr
+    end
+end

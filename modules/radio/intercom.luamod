@@ -1,0 +1,52 @@
+-- radio/intercom.luamod — 内通控制 PDU(PDU 32,无线电通信族)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 布局:控制类型(1) 信道类型(1) 源实体ID(6) 源设备(2) 源线路(1) 优先级(1)
+--       线路状态(1) 命令(1) 主实体ID(6) 主设备(2) 主信道(2);body 总 24 字节
+
+return function(C)
+    local f               = C.proto.fields
+
+    local V_IC_CONTROL    = {
+        [0] = "保留 Reserved",
+        [1] = "状态 Status",
+        [2] = "请求——需确认 Request - Acknowledge Required",
+        [3] = "请求——无需确认 Request - No Acknowledge",
+        [4] = "确认(ACK)——请求已批准 Ack - Request Granted",
+        [5] = "否认(NACK)——请求被拒绝 Nack - Request Denied",
+    }
+    local V_IC_LINE_STATE = {
+        [0] = "发送线路状态不适用 Transmit Line State not applicable",
+        [1] = "未发送 Not Transmitting",
+        [2] = "发送中 Transmitting",
+    }
+
+    f.ic_control_type     = ProtoField.uint8("displus.ic_control_type", "控制类型 (Control Type)", base.DEC, V_IC_CONTROL)
+    f.ic_channel_type     = ProtoField.uint8("displus.ic_channel_type", "信道类型 (Communications Channel Type)", base.DEC,
+        C.ENUMS.IC_CHANNEL_TYPE)
+    f.ic_src_device       = ProtoField.uint16("displus.ic_source_device_id", "源通信设备ID (Source Device ID)", base.DEC)
+    f.ic_src_line         = ProtoField.uint8("displus.ic_source_line_id", "源线路ID (Source Line ID)", base.DEC)
+    f.ic_priority         = ProtoField.uint8("displus.ic_transmit_priority", "发射优先级 (Transmit Priority)", base.DEC)
+    f.ic_line_state       = ProtoField.uint8("displus.ic_transmit_line_state", "线路状态 (Transmit Line State)", base.DEC,
+        V_IC_LINE_STATE)
+    f.ic_command          = ProtoField.uint8("displus.ic_command", "命令 (Command)", base.DEC)
+    f.ic_master_device    = ProtoField.uint16("displus.ic_master_device_id", "主通信设备ID (Master Device ID)", base.DEC)
+    f.ic_master_channel   = ProtoField.uint16("displus.ic_master_channel_id", "主信道ID (Master Channel ID)", base.DEC)
+
+    local function dissect_intercom_control(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 24, body) then return off end
+        body:add(f.ic_control_type, tvb(off, 1)); off = off + 1
+        body:add(f.ic_channel_type, tvb(off, 1)); off = off + 1
+        off = C.add_entity_id(body, tvb, off, "源实体ID (Source Entity ID)")
+        body:add(f.ic_src_device, tvb(off, 2)); off = off + 2
+        body:add(f.ic_src_line, tvb(off, 1)); off = off + 1
+        body:add(f.ic_priority, tvb(off, 1)); off = off + 1
+        body:add(f.ic_line_state, tvb(off, 1)); off = off + 1
+        body:add(f.ic_command, tvb(off, 1)); off = off + 1
+        off = C.add_entity_id(body, tvb, off, "主实体ID (Master Entity ID)")
+        body:add(f.ic_master_device, tvb(off, 2)); off = off + 2
+        body:add(f.ic_master_channel, tvb(off, 2)); off = off + 2
+        return off
+    end
+    C.register(32, dissect_intercom_control, "内通控制 Intercom Control")
+end

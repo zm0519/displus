@@ -1,0 +1,32 @@
+-- radio/receiver.luamod — 接收机 PDU(PDU 27,无线电通信族)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 布局:EntityID(6) radio_id(2) state(2) pad16(2) 接收功率(f32)
+--       发射机ID(6) 发射机电台ID(2);body 总 28 字节
+
+return function(C)
+    local f          = C.proto.fields
+
+    local V_RX_STATE = {
+        [0] = "关机 Off",
+        [1] = "开机但未接收 On but not receiving",
+        [2] = "开机且接收中 On and receiving",
+    }
+
+    f.rx_state       = ProtoField.uint16("displus.radio_receive_state", "接收状态 (Receive State)", base.DEC, V_RX_STATE)
+    f.rx_power       = ProtoField.float("displus.receive_power", "接收功率 (Receive Power) dBm")
+    f.tx_radio_id    = ProtoField.uint16("displus.transmitter_radio_id", "发射机电台ID (Transmitter Radio ID)", base.DEC)
+
+    local function dissect_receiver(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 20, body) then return off end
+        off = C.add_entity_id(body, tvb, off, "实体ID (Entity ID)")
+        body:add(f.radio_id, tvb(off, 2)); off = off + 2
+        body:add(f.rx_state, tvb(off, 2)); off = off + 2
+        body:add(f.pad16, tvb(off, 2)); off = off + 2
+        body:add(f.rx_power, tvb(off, 4)); off = off + 4
+        off = C.add_entity_id(body, tvb, off, "发射机实体ID (Transmitter ID)")
+        body:add(f.tx_radio_id, tvb(off, 2)); off = off + 2
+        return off
+    end
+    C.register(27, dissect_receiver, "接收机 Receiver")
+end

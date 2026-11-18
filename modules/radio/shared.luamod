@@ -1,0 +1,27 @@
+-- radio/shared.luamod — 无线电通信族族内共享(无 PDU,仅字段与辅助函数)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 电台公共字段(电台ID/电台实体类型);发射机 25 / 信号 26/31 / 接收机 27 共用。
+
+return function(C)
+    local f      = C.proto.fields
+
+    f.radio_id   = ProtoField.uint16("displus.radio_id", "电台ID (Radio ID)", base.DEC)
+    f.radio_kind = ProtoField.uint8("displus.radio_kind", "种类 (Kind)", base.DEC, C.KIND_TBL)
+    f.radio_dom  = ProtoField.uint8("displus.radio_domain", "域 (Domain)", base.DEC, C.DOMAIN_TBL)
+    f.radio_cat  = ProtoField.uint8("displus.radio_category", "类别 (Category)", base.DEC)
+    f.nomen_ver  = ProtoField.uint8("displus.nomenclature_version", "命名版本 (Nomenclature Version)", base.DEC)
+    f.nomen      = ProtoField.uint16("displus.nomenclature", "命名 (Nomenclature)", base.DEC)
+
+    -- 电台实体类型记录:8 字节(kind/domain/country/radio_cat/nomen_ver/nomen)
+    function C.add_radio_entity_type(t, tvb, off, zh_name)
+        local sub = t:add(tvb(off, 8), zh_name)
+        sub:add(f.radio_kind, tvb(off, 1))
+        sub:add(f.radio_dom, tvb(off + 1, 1))
+        sub:add(C.proto.fields.et_country, tvb(off + 2, 2))
+        sub:add(f.radio_cat, tvb(off + 4, 1))
+        sub:add(f.nomen_ver, tvb(off + 5, 1))
+        sub:add(f.nomen, tvb(off + 6, 2))
+        return off + 8
+    end
+end

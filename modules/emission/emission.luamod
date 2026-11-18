@@ -1,0 +1,142 @@
+-- emission/emission.luamod — 电磁发射 PDU(PDU 23,分布发射再生族)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 布局:Emitting(6) EventID(6) state(1) N(1) pad16(2)
+--       + N×系统{len(1) M(1) pad16(2) EmitterSystem 名称/功能/编号(4) Location(12)}
+--       + 每系统 M×波束{len(1) num(1) idx(2) 基础参数(20=频率/范围/ERP/PRF/脉宽/
+--         方位·俯仰中心与扫宽/同步) function(1) P(1) 高密度(1) 状态(1) 干扰技术(4)}
+--       + 每波束 P×跟踪/干扰{EntityID(6) 辐射源(1) 波束(1)}
+--       (v7 表 161:224+Σ[160+416M+64P] 位;干扰技术 4 字节按整字 u32)
+-- 发射器系统功能 [UID 76] 82 项全表在 enums_data(v37)
+-- 高密度跟踪/干扰 [UID 79];电磁发射器名称 [UID 75] 2874 项(enums_data)
+
+return function(C)
+    local f               = C.proto.fields
+
+    local V_HIGH_DENSITY  = { [0] = "未选择 Not Selected", [1] = "选择 Selected" }
+    local V_BEAM_FUNCTION = {
+        [0] = "其他 Other",
+        [1] = "搜索 Search",
+        [2] = "测高 Height Finding",
+        [3] = "截获 Acquisition",
+        [4] = "跟踪 Tracking",
+        [5] = "截获与跟踪 Acquisition and tracking",
+        [6] = "指令制导 Command guidance",
+        [7] = "照射 Illumination",
+        [8] = "测距 Ranging",
+        [9] = "导弹信标 Missile beacon",
+        [10] = "导弹引信 Missile Fusing",
+        [11] = "主动雷达导弹导引头 Active radar missile seeker",
+        [12] = "干扰 Jamming",
+        [13] = "敌我识别(IFF) IFF",
+        [14] = "导航/气象 Navigation / Weather",
+        [15] = "气象 Meteorological",
+        [16] = "数据传输 Data transmission",
+        [17] = "导航指向信标 Navigational directional beacon",
+        [19] = "地面测绘 Ground Mapping",
+        [20] = "分时搜索 Time-Shared Search",
+        [21] = "分时截获 Time-Shared Acquisition",
+        [22] = "分时跟踪 Time-Shared Track",
+        [23] = "分时指令制导 Time-Shared Command Guidance",
+        [24] = "分时照射 Time-Shared Illumination",
+        [25] = "分时干扰 Time-Shared Jamming",
+    }
+
+    f.em_num_systems      = ProtoField.uint8("displus.num_emission_systems",
+        "发射系统数 (Number of Emission Systems)", base.DEC)
+    f.em_data_len         = ProtoField.uint8("displus.em_data_length",
+        "数据长度 (Emission System Data Length)", base.DEC)
+    f.em_num_beams        = ProtoField.uint8("displus.em_num_beams", "波束数 (Number of Beams)", base.DEC)
+    f.emitter_name        = ProtoField.uint16("displus.emitter_name", "发射器名称 (Emitter Name)",
+        base.DEC, C.ENUMS.EMITTER_NAME)
+    f.emission_function   = ProtoField.uint8("displus.emission_function",
+        "功能 (Emission Function)", base.DEC, C.ENUMS.EMIT_FUNCTION)
+    f.emitter_id          = ProtoField.uint8("displus.emitter_id_number", "发射器编号 (Emitter ID Number)", base.DEC)
+    f.em_loc_x            = ProtoField.float("displus.em_location_x", "X (Location)")
+    f.em_loc_y            = ProtoField.float("displus.em_location_y", "Y (Location)")
+    f.em_loc_z            = ProtoField.float("displus.em_location_z", "Z (Location)")
+    f.beam_data_len       = ProtoField.uint8("displus.em_beam_data_length", "波束数据长度 (Beam Data Length)", base.DEC)
+    f.beam_id             = ProtoField.uint8("displus.em_beam_id_number", "波束编号 (Beam ID Number)", base.DEC)
+    f.beam_param_idx      = ProtoField.uint16("displus.em_beam_parameter_index",
+        "波束参数索引 (Beam Parameter Index)", base.DEC)
+    f.fund_freq           = ProtoField.float("displus.em_fund_frequency", "频率 (Frequency) Hz")
+    f.fund_range          = ProtoField.float("displus.em_fund_frequency_range", "频率范围 (Frequency Range) Hz")
+    f.fund_erp            = ProtoField.float("displus.em_fund_effective_radiated_power",
+        "有效辐射功率 (Effective Radiated Power) dBm")
+    f.fund_prf            = ProtoField.float("displus.em_fund_pulse_repetition_freq",
+        "脉冲重复频率 (PRF) Hz")
+    f.fund_pw             = ProtoField.float("displus.em_fund_pulse_width", "脉冲宽度 (Pulse Width) us")
+    f.fund_az_c           = ProtoField.float("displus.em_fund_beam_azimuth_center", "方位角中心 (Azimuth Center) rad")
+    f.fund_az_s           = ProtoField.float("displus.em_fund_beam_azimuth_sweep", "方位扫宽 (Azimuth Sweep) rad")
+    f.fund_el_c           = ProtoField.float("displus.em_fund_beam_elevation_center", "俯仰角中心 (Elevation Center) rad")
+    f.fund_el_s           = ProtoField.float("displus.em_fund_beam_elevation_sweep", "俯仰扫宽 (Elevation Sweep) rad")
+    f.fund_sync           = ProtoField.float("displus.em_fund_beam_sweep_sync", "扫描同步 (Sweep Sync)")
+    f.beam_function       = ProtoField.uint8("displus.beam_function", "波束功能 (Beam Function)", base.DEC, V_BEAM_FUNCTION)
+    f.tj_num_targ         = ProtoField.uint8("displus.track_jam_num_targ",
+        "跟踪/干扰目标数 (Number of Track/Jam Targets)", base.DEC)
+    f.tj_high_density     = ProtoField.uint8("displus.track_jam_high_density",
+        "高密度跟踪标志 (High Density Track/Jam)", base.DEC, V_HIGH_DENSITY)
+    f.jamming_mode        = ProtoField.uint32("displus.jamming_mode_seq", "干扰模式序列 (Jamming Mode Sequence)", base.DEC)
+    f.emitter_id_tj       = ProtoField.uint8("displus.track_jam_emitter_id", "发射器编号 (Emitter ID)", base.DEC)
+    f.beam_id_tj          = ProtoField.uint8("displus.track_jam_beam_id", "波束编号 (Beam ID)", base.DEC)
+
+    local function dissect_emission(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 8, body) then return off end
+        off = C.add_entity_id(body, tvb, off, "发射实体ID (Emitting Entity ID)")
+        off = C.add_event_id(body, tvb, off, "事件ID (Event ID)")
+        body:add(f.em_state_update, tvb(off, 1)); off = off + 1
+        local nsys = tvb(off, 1):uint()
+        body:add(f.em_num_systems, tvb(off, 1)); off = off + 1
+        body:add(f.pad16, tvb(off, 2)); off = off + 2
+        if nsys > C.MAX_RECORDS then nsys = C.MAX_RECORDS end
+        for i = 1, nsys do
+            if not C.need(tvb, off, 8, body) then return off end
+            local sys = body:add(tvb(off), string.format("发射系统 (Emission System) [%d]", i - 1))
+            body:add(f.em_data_len, tvb(off, 1)); off = off + 1
+            local nbeams = tvb(off, 1):uint()
+            sys:add(f.em_num_beams, tvb(off, 1)); off = off + 1
+            sys:add(f.pad16, tvb(off, 2)); off = off + 2
+            local es = sys:add(tvb(off, 4), "发射器系统 (Emitter System)")
+            es:add(f.emitter_name, tvb(off, 2))
+            es:add(f.emission_function, tvb(off + 2, 1))
+            es:add(f.emitter_id, tvb(off + 3, 1))
+            off = off + 4
+            local loc = sys:add(tvb(off, 12), "位置 (Location)")
+            loc:add(f.em_loc_x, tvb(off, 4)); loc:add(f.em_loc_y, tvb(off + 4, 4)); loc:add(f.em_loc_z, tvb(off + 8, 4))
+            off = off + 12
+            if nbeams > C.MAX_RECORDS then nbeams = C.MAX_RECORDS end
+            for j = 1, nbeams do
+                if not C.need(tvb, off, 48, body) then return off end
+                local beam = body:add(tvb(off), string.format("波束 (Beam) [%d]", j - 1))
+                beam:add(f.beam_data_len, tvb(off, 1)); off = off + 1
+                beam:add(f.beam_id, tvb(off, 1)); off = off + 1
+                beam:add(f.beam_param_idx, tvb(off, 2)); off = off + 2
+                local fp = beam:add(tvb(off, 40), "基础参数数据 (Fundamental Parameter Data)")
+                fp:add(f.fund_freq, tvb(off, 4)); fp:add(f.fund_range, tvb(off + 4, 4))
+                fp:add(f.fund_erp, tvb(off + 8, 4)); fp:add(f.fund_prf, tvb(off + 12, 4))
+                fp:add(f.fund_pw, tvb(off + 16, 4)); fp:add(f.fund_az_c, tvb(off + 20, 4))
+                fp:add(f.fund_az_s, tvb(off + 24, 4)); fp:add(f.fund_el_c, tvb(off + 28, 4))
+                fp:add(f.fund_el_s, tvb(off + 32, 4)); fp:add(f.fund_sync, tvb(off + 36, 4))
+                off = off + 40
+                beam:add(f.beam_function, tvb(off, 1)); off = off + 1
+                local ntj = tvb(off, 1):uint()
+                beam:add(f.tj_num_targ, tvb(off, 1)); off = off + 1
+                beam:add(f.tj_high_density, tvb(off, 1)); off = off + 1
+                beam:add(f.pad8, tvb(off, 1)); off = off + 1
+                beam:add(f.jamming_mode, tvb(off, 4)); off = off + 4
+                for k = 1, ntj do
+                    if not C.need(tvb, off, 8, body) then return off end
+                    local tj = beam:add(tvb(off, 8), string.format("跟踪/干扰实体 (Track/Jam Entity) [%d]", k - 1))
+                    tj:add(C.proto.fields.site, tvb(off, 2))
+                    tj:add(C.proto.fields.app, tvb(off + 2, 2))
+                    tj:add(C.proto.fields.entity, tvb(off + 4, 2))
+                    tj:add(f.emitter_id_tj, tvb(off + 6, 1))
+                    tj:add(f.beam_id_tj, tvb(off + 7, 1))
+                    off = off + 8
+                end
+            end
+        end
+        return off
+    end
+    C.register(23, dissect_emission, "电磁发射 Electromagnetic Emission")
+end

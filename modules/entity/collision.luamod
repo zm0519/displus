@@ -1,0 +1,34 @@
+-- entity/collision.luamod — 碰撞 PDU(PDU 4,实体信息族)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 布局:Issuing(6) Colliding(6) EventID(6)
+-- collision_type(1) pad(1) Velocity(12) mass(f32) Location-wrt-entity(12)
+
+return function(C)
+    local f = C.proto.fields
+
+    -- 碰撞类型 [UID 189] 55 项全表在 enums_data(v37)
+    f.collision_type = ProtoField.uint8("displus.collision_type",
+        "碰撞类型 (Collision Type)", base.DEC, C.ENUMS.COLLISION_TYPE)
+    f.col_loc_x = ProtoField.float("displus.collision_location_x", "X (Location)")
+    f.col_loc_y = ProtoField.float("displus.collision_location_y", "Y (Location)")
+    f.col_loc_z = ProtoField.float("displus.collision_location_z", "Z (Location)")
+
+    local function dissect_collision(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 34, body) then return off end
+        off = C.add_entity_id(body, tvb, off, "发包实体ID (Issuing Entity ID)")
+        off = C.add_entity_id(body, tvb, off, "碰撞实体ID (Colliding Entity ID)")
+        off = C.add_event_id(body, tvb, off, "事件ID (Event ID)")
+        body:add(f.collision_type, tvb(off, 1)); off = off + 1
+        body:add(f.pad8, tvb(off, 1)); off = off + 1
+        local v = body:add(tvb(off, 12), "速度 (Velocity)")
+        v:add(f.vel_x, tvb(off, 4)); v:add(f.vel_y, tvb(off + 4, 4)); v:add(f.vel_z, tvb(off + 8, 4))
+        off = off + 12
+        body:add(f.collision_mass, tvb(off, 4)); off = off + 4
+        local l = body:add(tvb(off, 12), "位置(相对实体) (Location wrt entity)")
+        l:add(f.col_loc_x, tvb(off, 4)); l:add(f.col_loc_y, tvb(off + 4, 4)); l:add(f.col_loc_z, tvb(off + 8, 4))
+        off = off + 12
+        return off
+    end
+    C.register(4, dissect_collision, "碰撞 Collision")
+end

@@ -1,0 +1,47 @@
+-- logistics/repair.luamod — 修理 PDU(PDU 9/10,后勤族)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 布局:9:receiving(6) repairing(6) 修理代码(2) pad16(2);标准 28B(7.4.6)
+--      10:receiving(6) repairing(6) 修理结果(1) pad16(2) pad8(1);总 28
+
+return function(C)
+    local f               = C.proto.fields
+
+    -- 修理响应结果 [UID 65]
+    local V_REPAIR_RESULT = {
+        [0] = "其他 Other",
+        [1] = "修理结束 Repair Ended",
+        [2] = "无效修理 Invalid Repair",
+        [3] = "修理被中断 Repair Interrupted",
+        [4] = "服务被提供方取消 Service Canceled by Supplier",
+    }
+
+    f.repair              = ProtoField.uint16("displus.repair", "修理代码 (Repair)", base.DEC, C.ENUMS.REPAIR)
+    f.repair_result       = ProtoField.uint8("displus.repair_result", "修理结果 (Repair Result)", base.DEC, V_REPAIR_RESULT)
+
+    ---------------------------------------------------------------- 修理完成(PDU 9)
+    local function dissect_repair_complete(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 16, body) then return off end
+        off = C.add_entity_id(body, tvb, off, "接收实体ID (Receiving Entity ID)")
+        off = C.add_entity_id(body, tvb, off, "维修实体ID (Repairing Entity ID)")
+        body:add(f.repair, tvb(off, 2)); off = off + 2
+        body:add(f.pad16, tvb(off, 2)); off = off + 2
+        return off
+    end
+
+    ---------------------------------------------------------------- 修理响应(PDU 10)
+    -- receiving(6) repairing(6) repair_result(1) pad16(2) pad8(1);总 28
+    local function dissect_repair_response(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 16, body) then return off end
+        off = C.add_entity_id(body, tvb, off, "接收实体ID (Receiving Entity ID)")
+        off = C.add_entity_id(body, tvb, off, "维修实体ID (Repairing Entity ID)")
+        if not C.need(tvb, off, 4, body) then return off end
+        body:add(f.repair_result, tvb(off, 1)); off = off + 1
+        body:add(f.pad16, tvb(off, 2)); off = off + 2
+        body:add(f.pad8, tvb(off, 1)); off = off + 1
+        return off
+    end
+
+    C.register(9, dissect_repair_complete, "修理完成 Repair Complete")
+    C.register(10, dissect_repair_response, "修理响应 Repair Response")
+end

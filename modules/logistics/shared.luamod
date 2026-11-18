@@ -1,0 +1,23 @@
+-- logistics/shared.luamod — 后勤族族内共享(无 PDU,仅字段与辅助函数)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 补给量记录与计数字段;服务请求 5 / 再补给 6/7 共用。
+
+return function(C)
+    local f        = C.proto.fields
+
+    f.num_supplies = ProtoField.uint8("displus.num_supplies", "补给类型数 (Number of Supply Types)", base.DEC)
+    f.quantity     = ProtoField.uint8("displus.quantity", "数量 (Quantity)", base.DEC)
+
+    ---------------------------------------------------------------- 补给量记录:9 字节 xN
+    function C.add_supplies(t, tvb, off, n)
+        for i = 1, n do
+            if not C.need(tvb, off, 9, t) then return off end
+            local rec = t:add(tvb(off, 9), string.format("补给量 (Supply Quantity) [%d]", i - 1))
+            off = C.add_entity_type(rec, tvb, off, "补给类型 (Supply Type)")
+            rec:add(f.quantity, tvb(off, 1))
+            off = off + 1
+        end
+        return off
+    end
+end

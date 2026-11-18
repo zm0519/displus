@@ -1,0 +1,12 @@
+-- emission/shared.luamod — 分布发射再生族族内共享(无 PDU,仅字段)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 状态更新指示器 [UID 77];电磁发射 23 / 水声 29 共用。
+
+return function(C)
+    local f = C.proto.fields
+
+    local V_STATE_UPDATE = { [0] = "心跳更新 Heartbeat Update", [1] = "变化数据更新 Changed Data Update" }
+    f.em_state_update = ProtoField.uint8("displus.em_state_update_indicator",
+        "状态更新指示 (State Update Indicator)", base.DEC, V_STATE_UPDATE)
+end

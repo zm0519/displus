@@ -1,0 +1,145 @@
+-- radio/signal.luamod — 信号 PDU(PDU 26 信号 / 31 内通信号,无线电通信族)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 布局:EntityID(6) radio_id(2) 编码方案(2=类别2位+类型14位) TDL(2)
+--       采样率(4) 数据长度-位(2) 样本数(2) + 数据(至包尾)
+-- TDL 类型 [UID 178] 98 项全表在 enums_data(v37;)
+
+return function(C)
+    local f             = C.proto.fields
+    local floor         = math.floor
+
+    local V_ENS_CLASS   = {
+        [0] = "编码音频 Encoded Audio",
+        [1] = "原始二进制 Raw Binary",
+        [2] = "应用特定 Application-Specific",
+        [3] = "数据库索引 Database Index",
+    }
+    local V_L16_MSGTYPE = { [0] = "JTIDS 头消息 JTIDS Header Messages" }
+
+    f.ens_class         = ProtoField.uint16("displus.ens_class", "编码类别 (Encoding Class)", base.DEC, V_ENS_CLASS, 0xC000)
+    -- 编码类型 [UID 271]:类别=0(编码音频)时适用;TDL=100 时该字段=Link16 词数
+    f.ens_type          = ProtoField.uint16("displus.ens_type", "编码类型 (Encoding Type)", base.DEC, C.ENUMS.ENCODING_TYPE,
+        0x3FFF)
+    f.tdl_type          = ProtoField.uint16("displus.tdl_type", "战术数据链类型 (TDL Type)", base.DEC, C.ENUMS.TDL_TYPE)
+    f.sample_rate       = ProtoField.uint32("displus.sample_rate", "采样率 (Sample Rate) Hz", base.DEC)
+    f.sig_data_len      = ProtoField.uint16("displus.data_length", "数据长度-位 (Data Length bits)", base.DEC)
+    f.num_samples       = ProtoField.uint16("displus.num_of_samples", "样本数 (Number of Samples)", base.DEC)
+    f.sig_data          = ProtoField.bytes("displus.signal_data", "信号数据 (Signal Data)")
+
+    -- Link16 网络头
+    f.l16_npg           = ProtoField.uint16("displus.link16_npg", "网络参与组 (NPG)", base.DEC)
+    f.l16_netnum        = ProtoField.uint8("displus.link16_network_number", "网络号 (Network Number)", base.DEC)
+    f.l16_tsec_cvll     = ProtoField.uint8("displus.link16_tsec_cvll", "TSEC CVLL", base.HEX)
+    f.l16_msec_cvll     = ProtoField.uint8("displus.link16_msec_cvll", "MSEC CVLL", base.HEX)
+    f.l16_msg_type      = ProtoField.uint8("displus.link16_message_type", "消息类型 (Message Type)", base.DEC, V_L16_MSGTYPE)
+    f.l16_tsi           = ProtoField.uint32("displus.link16_time_slot_id", "时隙号 (Time Slot ID)", base.DEC)
+    f.l16_ptt_s         = ProtoField.uint32("displus.link16_ptt_seconds", "精确时间-秒 (PTT seconds)", base.DEC)
+    f.l16_ptt_frac      = ProtoField.uint32("displus.link16_ptt_fraction", "精确时间-小数 (PTT fraction)", base.DEC)
+    -- JTIDS 头与词计数
+    f.l16_stn           = ProtoField.uint32("displus.link16_stn", "源跟踪号 (STN)", base.OCT)
+    f.l16_sdusn         = ProtoField.uint32("displus.link16_sdusn", "数据序列号 (SDUSN)", base.DEC)
+    f.l16_word          = ProtoField.bytes("displus.link16_word", "词组 (Link 16 Word Group)")
+
+    -- 从 u32 数值取第 n 字节(n=0 为最低位字节)
+    local function nb(v, n) return floor(v / (256 ^ n)) % 256 end
+
+    local function dissect_signal(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 20, body) then return off end
+        off = C.add_entity_id(body, tvb, off, "实体ID (Entity ID)")
+        body:add(f.radio_id, tvb(off, 2)); off = off + 2
+        local ens = tvb(off, 2):uint()
+        local ensnode = body:add(tvb(off, 2), "编码方案 (Encoding Scheme)")
+        ensnode:add(f.ens_class, tvb(off, 2))
+        ensnode:add(f.ens_type, tvb(off, 2))
+        off = off + 2
+        local tdl = tvb(off, 2):uint()
+        body:add(f.tdl_type, tvb(off, 2)); off = off + 2
+        body:add(f.sample_rate, tvb(off, 4)); off = off + 4
+        body:add(f.sig_data_len, tvb(off, 2)); off = off + 2
+        body:add(f.num_samples, tvb(off, 2)); off = off + 2
+
+        if tdl == 100 then
+            -- Link16 标准格式深挖
+            if not C.need(tvb, off, 28, body) then return off end
+            local nh = body:add(tvb(off, 20), "Link16 网络头 (Network Header)")
+            nh:add(f.l16_npg, tvb(off, 2))
+            nh:add(f.l16_netnum, tvb(off + 2, 1))
+            nh:add(f.l16_tsec_cvll, tvb(off + 3, 1))
+            nh:add(f.l16_msec_cvll, tvb(off + 4, 1))
+            local mtype = tvb(off + 5, 1):uint()
+            nh:add(f.l16_msg_type, tvb(off + 5, 1))
+            nh:add(f.pad16, tvb(off + 6, 2))
+            nh:add(f.l16_tsi, tvb(off + 8, 4))
+            local pt = nh:add(tvb(off + 12, 8), "精确时间 (PTT)")
+            local ptt_s = tvb(off + 12, 4):uint()
+            if ptt_s == 0xFFFFFFFF then
+                pt:append_text("  NO STATEMENT")
+            else
+                pt:add(f.l16_ptt_s, tvb(off + 12, 4))
+                pt:add(f.l16_ptt_frac, tvb(off + 16, 4))
+            end
+            off = off + 20
+
+            -- JTIDS 头 8B:STN 取自首 u32,SDUSN 跨两个 u32;
+            -- 词循环以第二 u32 为缓冲起点,从 JTIDS+8 起读
+            local function u32(o) return tvb(o, 4):uint() end
+            local cache = u32(off)
+            local stn = floor(cache / 16) % 0x8000
+            local sdusn = floor(cache / 524288)
+            cache = u32(off + 4)
+            sdusn = sdusn + (cache % 8) * 8192
+            local jt = body:add(tvb(off, 8), "JTIDS 头 (JTIDS Header)")
+            jt:add(f.l16_stn, tvb(off, 4), stn)
+            jt:add(f.l16_sdusn, tvb(off, 8), sdusn)
+            off = off + 8
+
+            local nwords = ens % 0x4000
+            local md = body:add(tvb(off), string.format(
+                "Link16 消息数据 (Link 16 Message Data, %d 词)", nwords))
+            if mtype ~= 0 then
+                md:append_text(string.format("  [提示] 消息类型 %d 非 JTIDS 头格式,词数据按字节显示", mtype))
+            end
+            -- 逐词重组:偶数词组 2 填充在前,
+            -- 奇数词组 2 填充在后。
+            for i = 1, nwords do
+                if not C.need(tvb, off, 12, md) then break end
+                local wb = {}
+                local function take4()
+                    local v = u32(off); off = off + 4
+                    return v
+                end
+                if (i - 1) % 2 == 0 then
+                    -- 偶数词:前 2 字节来自上一 u32 的高半字
+                    wb[1] = nb(cache, 2); wb[2] = nb(cache, 3)
+                    local v = take4()
+                    wb[3], wb[4], wb[5], wb[6] = nb(v, 0), nb(v, 1), nb(v, 2), nb(v, 3)
+                    v = take4()
+                    wb[7], wb[8], wb[9], wb[10] = nb(v, 0), nb(v, 1), nb(v, 2), nb(v, 3)
+                    cache = v
+                else
+                    local v = take4()
+                    wb[1], wb[2], wb[3], wb[4] = nb(v, 0), nb(v, 1), nb(v, 2), nb(v, 3)
+                    v = take4()
+                    wb[5], wb[6], wb[7], wb[8] = nb(v, 0), nb(v, 1), nb(v, 2), nb(v, 3)
+                    v = take4()
+                    wb[9], wb[10] = nb(v, 0), nb(v, 1)
+                    cache = v
+                end
+                local hex = {}
+                for bi = 1, 10 do hex[bi] = string.format("%02x", wb[bi]) end
+                local wnode = md:add(f.l16_word, tvb(off - 12, 12))
+                wnode:append_text(string.format(" [%d] %s", i - 1, table.concat(hex, " ")))
+            end
+            return tvb:len()
+        end
+
+        if tvb:len() > off then
+            body:add(f.sig_data, tvb(off))
+            off = tvb:len()
+        end
+        return off
+    end
+    C.register(26, dissect_signal, "信号 Signal")
+    C.register(31, dissect_signal, "内通信号 Intercom Signal")
+end

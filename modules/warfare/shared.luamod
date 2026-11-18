@@ -1,0 +1,32 @@
+-- warfare/shared.luamod — 作战族族内共享(无 PDU,仅字段与辅助函数)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 速度字段
+-- 与爆发描述符记录;开火 2 / 爆炸 3 共用。
+
+return function(C)
+    local f   = C.proto.fields
+
+    f.w_vel_x = ProtoField.float("displus.linear_velocity_x", "X (Velocity)")
+    f.w_vel_y = ProtoField.float("displus.linear_velocity_y", "Y (Velocity)")
+    f.w_vel_z = ProtoField.float("displus.linear_velocity_z", "Z (Velocity)")
+
+    ---------------------------------------------------------------- 爆发描述符:16 字节
+    -- 布局:Munition EntityType(8)
+    -- + warhead u16 + fuse u16 + quality u16 + rate u16
+    -- 战斗部 [UID 60] / 引信 [UID 61] 全表在 enums_data(v37,96/107 项)
+    f.warhead = ProtoField.uint16("displus.warhead", "战斗部 (Warhead)", base.DEC, C.ENUMS.WARHEAD)
+    f.fuse    = ProtoField.uint16("displus.fuse", "引信 (Fuse)", base.DEC, C.ENUMS.FUSE)
+    f.quality = ProtoField.uint16("displus.burst_quality", "数量 (Quantity)", base.DEC)
+    f.rate    = ProtoField.uint16("displus.burst_rate", "速率 (Rate)", base.DEC)
+
+    function C.add_burst_descriptor(t, tvb, off)
+        local sub = t:add(tvb(off, 16), "爆发描述符 (Burst Descriptor)")
+        off = C.add_entity_type(sub, tvb, off, "弹药 (Munition)")
+        sub:add(f.warhead, tvb(off, 2)); off = off + 2
+        sub:add(f.fuse, tvb(off, 2)); off = off + 2
+        sub:add(f.quality, tvb(off, 2)); off = off + 2
+        sub:add(f.rate, tvb(off, 2)); off = off + 2
+        return off
+    end
+end

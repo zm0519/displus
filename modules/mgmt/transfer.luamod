@@ -1,0 +1,66 @@
+-- mgmt/transfer.luamod — 转移所有权 PDU(PDU 35,实体管理族)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 布局:发起(6) 接收(6) request_id(4) reliability(1)[UID 74]
+--       转移类型(1)[UID 224] 转移实体ID(6) 记录集数(4,u32)
+--       + R×记录集{记录ID(4)[UID 66] 序列号(4) pad32(4)
+--         记录长度(2,位) 记录数(2) 值(⌈L·Q/8⌉ 字节) 64 位对齐填充}
+-- request_id / reliability 字段沿用仿真管理族定义(字段表全插件共享)
+
+return function(C)
+    local f          = C.proto.fields
+    local ceil       = math.ceil
+
+    f.tow_type       = ProtoField.uint8("displus.transfer_type", "转移类型 (Transfer Type)", base.DEC)
+    f.tow_num_sets   = ProtoField.uint32("displus.number_of_record_sets",
+        "记录集数 (Number of Record Sets)", base.DEC)
+    f.tow_rec_id     = ProtoField.uint32("displus.record_set_record_id",
+        "记录ID (Record ID)", base.DEC, C.ENUMS.RECORD_TYPE)
+    f.tow_rec_serial = ProtoField.uint32("displus.record_set_serial_number",
+        "记录集序列号 (Record Set Serial Number)", base.DEC)
+    f.tow_rec_len    = ProtoField.uint16("displus.record_set_record_length",
+        "记录长度-位 (Record Length bits)", base.DEC)
+    f.tow_rec_count  = ProtoField.uint16("displus.record_set_record_count",
+        "记录数 (Record Count)", base.DEC)
+    f.tow_rec_values = ProtoField.bytes("displus.record_set_values",
+        "记录值+对齐填充 (Record Values and Padding)")
+
+    local function dissect_transfer_ownership(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 25, body) then return off end
+        off = C.add_entity_id(body, tvb, off, "发起实体ID (Originating Entity ID)")
+        off = C.add_entity_id(body, tvb, off, "接收实体ID (Receiving Entity ID)")
+        body:add(C.proto.fields.request_id, tvb(off, 4)); off = off + 4
+        body:add(C.proto.fields.reliability, tvb(off, 1)); off = off + 1
+        body:add(f.tow_type, tvb(off, 1)); off = off + 1
+        off = C.add_entity_id(body, tvb, off, "转移实体ID (Transfer Entity ID)")
+        local nsets = tvb(off, 4):uint()
+        body:add(f.tow_num_sets, tvb(off, 4)); off = off + 4
+        if nsets > C.MAX_RECORDS then
+            body:add(tvb(), string.format("[护栏] 记录集数 %d 超上限,仅解析前 %d 集", nsets, C.MAX_RECORDS))
+            nsets = C.MAX_RECORDS
+        end
+        for s = 1, nsets do
+            if not C.need(tvb, off, 16, body) then return off end
+            local rlen = tvb(off + 12, 2):uint()
+            local rcount = tvb(off + 14, 2):uint()
+            local vbits = rlen * rcount
+            local vbytes = ceil(vbits / 8)
+            local total = ceil(vbytes / 8) * 8 -- 值+填充至 64 位边界
+            local rs = body:add(tvb(off, math.min(16 + total, tvb:len() - off)),
+                string.format("记录集 (Record Set) [%d]", s - 1))
+            rs:add(f.tow_rec_id, tvb(off, 4))
+            rs:add(f.tow_rec_serial, tvb(off + 4, 4))
+            rs:add(f.pad32, tvb(off + 8, 4))
+            rs:add(f.tow_rec_len, tvb(off + 12, 2))
+            rs:add(f.tow_rec_count, tvb(off + 14, 2))
+            off = off + 16
+            if not C.need(tvb, off, total, rs) then return off end
+            if total > 0 then
+                rs:add(f.tow_rec_values, tvb(off, total))
+                off = off + total
+            end
+        end
+        return off
+    end
+    C.register(35, dissect_transfer_ownership, "转移所有权 Transfer Ownership")
+end

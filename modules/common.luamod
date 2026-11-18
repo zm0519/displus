@@ -1,0 +1,125 @@
+-- common.luamod — displus
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- displus.lua 用 dofile 加载本文件,拿到返回的表 C;其余模块的写法都是
+-- return function(C) ... end,由下面的 C.load 逐个执行。
+
+local floor     = math.floor
+
+local C         = {}
+
+-- displus 协议对象。描述文字
+C.proto         = Proto("displus", "DIS 全解")
+-- 获取内置dis解析
+C.builtin       = Dissector.get("dis")
+
+-- PDU 解析注册表:pdu_type -> fn(tvb, body_tree, off, pinfo) -> 新 off
+C.BODY          = {}
+-- PDU 类型中文名(显示于枚举与树节点)
+C.PDU_NAME      = {}
+-- 预留,当前没有代码使用:每种 PDU 的期望总长度,
+-- pdu_type -> number 或 function(buf_len) -> number|nil
+C.EXPECT        = {}
+
+-------------------------------------------------------------------- 跨包上下文
+-- 收到 EntityState PDU 时记下该实体的 (kind, domain),
+-- 之后解析 EntityStateUpdate(67) 的 Appearance 字段时要用它。
+-- 历史总条数上限 4096(内置无上限),防长时间抓包内存膨胀。
+C.ctx           = {}
+local ctx_count = 0
+
+-- site,app,entity: key
+-- kind,domain: value
+-- fn: frame number
+function C.remember_ctx(site, app, entity, kind, domain, fn)
+    -- 三元组拼成一个整数键:site*2^32 + app*2^16 + entity
+    local k = site * 4294967296 + app * 65536 + entity
+    local h = C.ctx[k]
+    if not h then
+        h = {}
+        C.ctx[k] = h
+    end
+    -- 同帧重复解析:替换该帧条目后返回
+    for i = #h, 1, -1 do
+        local e = h[i]
+        if e.fn == fn then
+            e.kind, e.domain = kind, domain
+            return
+        end
+        if e.fn < fn then break end -- 列表按帧号升序,更前面不会有同帧
+    end
+    -- 找按帧号的插入位置(乱序解析时也保持升序)
+    local pos = #h + 1
+    while pos > 1 and h[pos - 1].fn > fn do pos = pos - 1 end
+    -- 与紧邻前一条相同则不记(历史只记变化点)
+    local prev = h[pos - 1]
+    if prev and prev.kind == kind and prev.domain == domain then return end
+    if ctx_count >= 4096 then return end
+    table.insert(h, pos, { fn = fn, kind = kind, domain = domain })
+    ctx_count = ctx_count + 1
+end
+
+-- 查询:取该实体帧号 <= fn 的最近一条;该实体的 EntityState 都在之后时返回 nil
+function C.lookup_ctx(site, app, entity, fn)
+    local h = C.ctx[site * 4294967296 + app * 65536 + entity]
+    if not h then return nil end
+    for i = #h, 1, -1 do
+        if h[i].fn <= fn then return h[i] end
+    end
+    return nil
+end
+
+-- 清空跨包上下文和计数器。每次打开/重载抓包文件前由 displus.init 调用
+function C.clear_ctx()
+    C.ctx = {}
+    ctx_count = 0
+end
+
+-------------------------------------------------------------------- 防护
+-- 越界检查:读 tvb(off, n) 之前先调用,不够读时在树里提示并返回 false
+-- tvb(off, n) 表示“从第 off 字节起读 n 字节
+function C.need(tvb, off, n, node)
+    if off + n > tvb:len() then
+        if node then
+            node:add(tvb(off),
+                string.format("[截断] 偏移 %d 起还需 %d 字节,包长仅 %d", off, n, tvb:len()))
+        end
+        return false
+    end
+    return true
+end
+
+-- 解析变长记录(如附属部件列表)的条数上限,防止畸形包造成死循环。
+C.MAX_RECORDS = 999
+
+-------------------------------------------------------------------- 时间戳
+-- 时间戳字段换算,对应内置的 parseField_Timestamp:
+-- 最低位(bit0)= 1 表示绝对时间、0 表示相对;其余 31 位是小时内的线性时间。
+-- usec = (ts>>1) * 3600000000 / (2^31-1),显示为 mm:ss.uuuuuu (绝对|相对)
+function C.ts_text(tvb, off)
+    local raw  = tvb(off, 4):uint()
+    local abs  = raw % 2
+    local usec = floor((raw - abs) / 2 * 3600000000 / 2147483647)
+    local m    = floor(usec / 60000000)
+    local s    = floor((usec - m * 60000000) / 1000000)
+    local us   = usec - m * 60000000 - s * 1000000
+    return string.format("%02d:%02d.%06d (%s)",
+        m, s, us, abs == 1 and "绝对 absolute" or "相对 relative")
+end
+
+-------------------------------------------------------------------- 注册与加载
+function C.register(pdu_type, fn, zh_name)
+    C.BODY[pdu_type] = fn
+    C.PDU_NAME[pdu_type] = zh_name
+end
+
+-- 依次加载并执行同目录模块;模块文件签名:return function(C) ... end
+function C.load(moddir, list)
+    for _, name in ipairs(list) do
+        local chunk = assert(dofile(moddir .. name .. ".luamod"),
+            "displus: 模块 " .. name .. " 未返回加载函数")
+        chunk(C)
+    end
+end
+
+return C

@@ -1,0 +1,150 @@
+-- emission/iff.luamod — 敌我识别 PDU(PDU 28,分布发射再生族)
+-- Copyright (C) 2026 zhenming(振茗)
+-- SPDX-License-Identifier: GPL-2.0-or-later
+-- 布局:Emitting(6) EventID(6) 位置相对实体(12,f32)
+--       系统标识 System ID(6=类型2+名称2+模式1+变更选项1)
+--       系统标识符(1)+系统专用数据(1)
+--       FOD 基础运行数据(4=系统状态1+备用参数4·1+信息层1+修饰符1)
+--       模式字×6(各2B:模式1/2/3字母数字/4或S/模式C高度/参数6 TCAS)
+--       body 总 48 字节
+-- IFF 系统类型/名称/模式 [UID 82/83/84](enums_data)
+-- 模式字渲染:状态/损坏/故障三个标志位(码元分解 Lua 树项不支持动态掩码,
+-- 以整字十六进制显示)
+
+return function(C)
+    local f              = C.proto.fields
+
+    f.iff_loc_x          = ProtoField.float("displus.iff_location_x", "X (Location wrt Entity)")
+    f.iff_loc_y          = ProtoField.float("displus.iff_location_y", "Y (Location wrt Entity)")
+    f.iff_loc_z          = ProtoField.float("displus.iff_location_z", "Z (Location wrt Entity)")
+    f.iff_system_type    = ProtoField.uint16("displus.iff_system_type", "系统类型 (System Type)",
+        base.DEC, C.ENUMS.IFF_SYSTEM_TYPE)
+    f.iff_system_name    = ProtoField.uint16("displus.iff_system_name", "系统名称 (System Name)",
+        base.DEC, C.ENUMS.IFF_SYSTEM_NAME)
+    f.iff_system_mode    = ProtoField.uint8("displus.iff_system_mode", "系统模式 (System Mode)",
+        base.DEC, C.ENUMS.IFF_SYSTEM_MODE)
+    f.iff_change_options = ProtoField.uint8("displus.iff_change_options", "变更选项 (Change/Options)", base.HEX)
+    f.iff_change_ind     = ProtoField.bool("displus.iff_change_indicator", "变更指示 (Change Indicator)", 8, nil, 0x01)
+    f.iff_alt_mode4      = ProtoField.bool("displus.iff_alternate_mode_4", "备用模式4 (Alternate Mode 4)", 8, nil, 0x02)
+    f.iff_alt_modec      = ProtoField.bool("displus.iff_alternate_mode_c", "备用模式C (Alternate Mode C)", 8, nil, 0x04)
+    f.iff_heartbeat      = ProtoField.bool("displus.iff_heartbeat_indicator", "心跳指示 (Heartbeat Indicator)", 8, nil, 0x08)
+    f.iff_ti             = ProtoField.bool("displus.iff_transponder_interrogator_indicator",
+        "应答机/询问机 (Transponder/Interrogator)", 8, nil, 0x10)
+    f.iff_sim_mode       = ProtoField.bool("displus.iff_simulation_mode", "仿真模式 (Simulation Mode)", 8, nil, 0x20)
+    f.iff_interactive    = ProtoField.bool("displus.iff_interactive_capable", "可交互 (Interactive Capable)", 8, nil, 0x40)
+    f.iff_test_mode      = ProtoField.bool("displus.iff_test_mode", "测试模式 (Test Mode)", 8, nil, 0x80)
+    f.iff_sys_designator = ProtoField.uint8("displus.iff_system_designator",
+        "系统标识 (System Designator)", base.HEX) -- v7
+    f.iff_sys_specific   = ProtoField.uint8("displus.iff_system_specific_data",
+        "系统专用数据 (System Specific Data)", base.HEX) -- v7
+    -- 基础运行数据(FOD)16B
+    f.iff_sys_status     = ProtoField.uint8("displus.iff_system_status", "系统状态 (System Status)", base.HEX)
+    f.iff_ss_onoff       = ProtoField.bool("displus.iff_system_status_onoff", "开关 (On/Off)", 8, nil, 0x01)
+    f.iff_ss_p1          = ProtoField.bool("displus.iff_system_status_parameter_1", "参数1 (Parameter 1)", 8, nil, 0x02)
+    f.iff_ss_p2          = ProtoField.bool("displus.iff_system_status_parameter_2", "参数2 (Parameter 2)", 8, nil, 0x04)
+    f.iff_ss_p3          = ProtoField.bool("displus.iff_system_status_parameter_3", "参数3 (Parameter 3)", 8, nil, 0x08)
+    f.iff_ss_p4          = ProtoField.bool("displus.iff_system_status_parameter_4", "参数4 (Parameter 4)", 8, nil, 0x10)
+    f.iff_ss_p5          = ProtoField.bool("displus.iff_system_status_parameter_5", "参数5 (Parameter 5)", 8, nil, 0x20)
+    f.iff_ss_p6          = ProtoField.bool("displus.iff_system_status_parameter_6", "参数6 (Parameter 6)", 8, nil, 0x40)
+    f.iff_ss_operational = ProtoField.bool("displus.iff_system_status_operational", "可运行 (Operational)", 8, nil, 0x80)
+    f.iff_alt_param4     = ProtoField.uint8("displus.iff_alternate_parameter_4",
+        "备用参数4 (Alternate Parameter 4)", base.HEX)
+    f.iff_layers         = ProtoField.uint8("displus.iff_information_layers", "信息层 (Information Layers)", base.HEX)
+    for li = 1, 7 do
+        f["iff_layer_" .. li] = ProtoField.bool("displus.iff_information_layers_layer_" .. li,
+            string.format("层%d (Layer %d)", li, li), 8, nil, 2 ^ li)
+    end
+    f.iff_modifier         = ProtoField.uint8("displus.iff_modifier", "修饰符 (Modifier)", base.HEX)
+    f.iff_mod_emergency    = ProtoField.bool("displus.iff_modifier_emergency", "紧急 (Emergency)", 8, nil, 0x02)
+    f.iff_mod_ident        = ProtoField.bool("displus.iff_modifier_ident", "身份 (Ident)", 8, nil, 0x04)
+    f.iff_mod_sti          = ProtoField.bool("displus.iff_modifier_sti", "STI", 8, nil, 0x08)
+    f.iff_mod_uav          = ProtoField.bool("displus.iff_modifier_unmanned_aircraft", "无人机 (Unmanned Aircraft)", 8, nil,
+        0x10)
+    -- 模式字(共用)
+    f.iff_param1           = ProtoField.uint16("displus.iff_parameter_1", "参数1/模式1 (Parameter 1)", base.HEX)
+    f.iff_param2           = ProtoField.uint16("displus.iff_parameter_2", "参数2/模式2 (Parameter 2)", base.HEX)
+    f.iff_param3           = ProtoField.uint16("displus.iff_parameter_3", "参数3/模式3/字母数字 (Parameter 3)", base.HEX)
+    f.iff_param4           = ProtoField.uint16("displus.iff_parameter_4", "参数4/模式4 (Parameter 4)", base.HEX)
+    f.iff_param5           = ProtoField.uint16("displus.iff_parameter_5", "参数5/模式C高度 (Parameter 5)", base.HEX)
+    f.iff_param6           = ProtoField.uint16("displus.iff_parameter_6", "参数6/TCAS (Parameter 6)", base.HEX)
+    f.iff_mce              = ProtoField.uint16("displus.iff_mode_code_element",
+        "码元 (Mode Code Element)", base.OCT)
+    f.iff_mode_status      = ProtoField.bool("displus.iff_mode_status", "模式状态 (Mode Status)", 16, nil, 0x2000)
+    f.iff_mode_damage      = ProtoField.bool("displus.iff_mode_damage", "损坏 (Damage)", 16, nil, 0x4000)
+    f.iff_mode_malfunction = ProtoField.bool("displus.iff_mode_malfunction", "故障 (Malfunction)", 16, nil, 0x8000)
+
+    local function add_mode_word_simple(parent, tvb, off, field, n_elements)
+        local w = parent:add(field, tvb(off, 2))
+        w:add(f.iff_mode_status, tvb(off, 2))
+        w:add(f.iff_mode_damage, tvb(off, 2))
+        w:add(f.iff_mode_malfunction, tvb(off, 2))
+        return w
+    end
+
+    local function dissect_iff(tvb, body, off, pinfo)
+        if not C.need(tvb, off, 40, body) then return off end
+        off = C.add_entity_id(body, tvb, off, "发射实体ID (Emitting Entity ID)")
+        off = C.add_event_id(body, tvb, off, "事件ID (Event ID)")
+        local l = body:add(tvb(off, 12), "位置(相对实体) (Location wrt Entity)")
+        l:add(f.iff_loc_x, tvb(off, 4)); l:add(f.iff_loc_y, tvb(off + 4, 4)); l:add(f.iff_loc_z, tvb(off + 8, 4))
+        off = off + 12
+        local sid = body:add(tvb(off, 6), "系统标识 (System ID)")
+        local sys_type = tvb(off, 2):uint()
+        sid:add(f.iff_system_type, tvb(off, 2))
+        sid:add(f.iff_system_name, tvb(off + 2, 2))
+        sid:add(f.iff_system_mode, tvb(off + 4, 1))
+        local co = sid:add(f.iff_change_options, tvb(off + 5, 1))
+        co:add(f.iff_change_ind, tvb(off + 5, 1))
+        co:add(f.iff_alt_mode4, tvb(off + 5, 1))
+        co:add(f.iff_alt_modec, tvb(off + 5, 1))
+        co:add(f.iff_heartbeat, tvb(off + 5, 1))
+        co:add(f.iff_ti, tvb(off + 5, 1))
+        co:add(f.iff_sim_mode, tvb(off + 5, 1))
+        co:add(f.iff_interactive, tvb(off + 5, 1))
+        co:add(f.iff_test_mode, tvb(off + 5, 1))
+        off = off + 6
+        body:add(f.iff_sys_designator, tvb(off, 1)); off = off + 1
+        body:add(f.iff_sys_specific, tvb(off, 1)); off = off + 1
+        -- 实为:status(1) alt_param4(1) layers(1) modifier(1) + 12B(模式1-3/4 数据随下方模式字)
+        local fod = body:add(tvb(off, 4), "基础运行数据 (Fundamental Operational Data)")
+        local st = fod:add(f.iff_sys_status, tvb(off, 1))
+        st:add(f.iff_ss_onoff, tvb(off, 1)); st:add(f.iff_ss_p1, tvb(off, 1))
+        st:add(f.iff_ss_p2, tvb(off, 1)); st:add(f.iff_ss_p3, tvb(off, 1))
+        st:add(f.iff_ss_p4, tvb(off, 1)); st:add(f.iff_ss_p5, tvb(off, 1))
+        st:add(f.iff_ss_p6, tvb(off, 1)); st:add(f.iff_ss_operational, tvb(off, 1))
+        off = off + 1
+        fod:add(f.iff_alt_param4, tvb(off, 1)); off = off + 1
+        local ly = fod:add(f.iff_layers, tvb(off, 1))
+        for li = 1, 7 do ly:add(f["iff_layer_" .. li], tvb(off, 1)) end
+        off = off + 1
+        local md = fod:add(f.iff_modifier, tvb(off, 1))
+        md:add(f.iff_mod_emergency, tvb(off, 1)); md:add(f.iff_mod_ident, tvb(off, 1))
+        md:add(f.iff_mod_sti, tvb(off, 1)); md:add(f.iff_mod_uav, tvb(off, 1))
+        off = off + 1
+        -- 模式字序列(镜像条件分支)
+        if not C.need(tvb, off, 12, body) then return off end
+        if sys_type == 5 then -- RRB TRANSPONDER
+            local r = add_mode_word_simple(body, tvb, off, f.iff_param1, 0)
+            r:append_text("  [RRB 应答机]")
+        else
+            add_mode_word_simple(body, tvb, off, f.iff_param1, 2):append_text("  模式1")
+        end
+        off = off + 2
+        add_mode_word_simple(body, tvb, off, f.iff_param2, 4):append_text("  模式2")
+        off = off + 2
+        add_mode_word_simple(body, tvb, off, f.iff_param3, 4):append_text("  模式3/字母数字")
+        off = off + 2
+        if sys_type == 8 then -- MODE S INTERROGATOR
+            add_mode_word_simple(body, tvb, off, f.iff_param4, 0):append_text("  模式S 询问机标识")
+        else
+            add_mode_word_simple(body, tvb, off, f.iff_param4, 0):append_text("  模式4")
+        end
+        off = off + 2
+        add_mode_word_simple(body, tvb, off, f.iff_param5, 0):append_text("  模式C 高度")
+        off = off + 2
+        add_mode_word_simple(body, tvb, off, f.iff_param6, 0):append_text("  参数6 TCAS")
+        off = off + 2
+        return off
+    end
+    C.register(28, dissect_iff, "敌我识别 IFF")
+end
