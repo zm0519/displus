@@ -1,2 +1,5 @@
 .vscode/*
 !.vscode/settings.json
+
+# 打包产物(由 tools\package.ps1 生成)
+displus-*.zip
